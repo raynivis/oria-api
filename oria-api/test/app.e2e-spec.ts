@@ -3,6 +3,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
+import { EmbeddingsService } from './../src/embeddings/embeddings.service';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
@@ -10,7 +11,13 @@ describe('AppController (e2e)', () => {
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      // Sem os serviços de infraestrutura no ar, o boot real do
+      // EmbeddingsService (validação de dimensão via chamada ao TEI) travaria
+      // este teste. Ele é exercitado à parte em embeddings.service.spec.ts.
+      .overrideProvider(EmbeddingsService)
+      .useValue({ onModuleInit: async () => undefined })
+      .compile();
 
     app = moduleFixture.createNestApplication();
     await app.init();
