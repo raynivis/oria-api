@@ -1,12 +1,14 @@
 # Backend da Tutora Oria — pacote de implementação
 
-Quatro arquivos para começar a implementar com o Claude Code.
+Sete arquivos para começar a implementar com o Claude Code.
 
 | Arquivo | O que é |
 |---|---|
 | `CLAUDE.md` | Contexto permanente. O Claude Code lê automaticamente. |
-| `IMPLEMENTATION.md` | Nove fases, com entidades, endpoints e critérios de aceite. |
+| `IMPLEMENTATION.md` | Onze fases, com entidades, endpoints e critérios de aceite. |
 | `PROMPTS.md` | Os seis templates de prompt, com schemas de validação. |
+| `VALIDATION.md` | O que a validação do TCC exige do código, e as divergências com o plano. |
+| `SCENARIOS.md` | Os quatro cenários de demonstração (Avaliação C), os 24 requisitos funcionais e a matriz de rastreabilidade. |
 | `docker-compose.yml` | Postgres/pgvector, Redis, TEI e a API. |
 | `embeddings.service.ts` | Cliente do TEI, pronto para copiar. |
 
@@ -15,7 +17,7 @@ Quatro arquivos para começar a implementar com o Claude Code.
 ```bash
 nest new oria-api
 cd oria-api
-cp ../CLAUDE.md ../IMPLEMENTATION.md ../PROMPTS.md .
+cp ../CLAUDE.md ../IMPLEMENTATION.md ../PROMPTS.md ../VALIDATION.md ../SCENARIOS.md .
 cp ../docker-compose.yml .
 mkdir -p src/embeddings && cp ../embeddings.service.ts src/embeddings/
 ```
@@ -38,10 +40,13 @@ script, para os testes automatizados, e um EPUB qualquer de domínio público em
 `acervo/` para desenvolvimento. Quando os títulos definitivos forem escolhidos,
 basta colocá-los na pasta e rodar `npm run seed`. Nenhum código muda.
 
-**O plano de avaliação.** Também não bloqueia. A Fase 6 implementa a telemetria
-completa e deixa as consultas de análise prontas em
-`src/telemetry/consultas.sql`. Coletar é barato; não ter coletado é
-irrecuperável.
+**O plano de avaliação.** Resolvido: a metodologia é DSR com avaliação formativa
+artificial, sem participantes. O que ela exige do backend está em
+`VALIDATION.md`; o roteiro de demonstração (Avaliação C), em `SCENARIOS.md`.
+Duas consequências práticas: a telemetria da Fase 6 encolhe, e o registro de
+chamadas de LLM da Fase 4 vira dado de pesquisa, com entrada e saída completas.
+Quatro divergências entre a validação e o plano original já foram marcadas e
+aplicadas em `SCENARIOS.md` — todas pendentes de confirmação com o orientador.
 
 ## Os modelos do OpenRouter
 

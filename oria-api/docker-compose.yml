@@ -75,6 +75,10 @@ services:
       RETRIEVAL_TOP_K: "6"
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: 7d
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      VALIDACAO_MODELO: ${VALIDACAO_MODELO}
+      VALIDACAO_PROVIDER: ${VALIDACAO_PROVIDER}
+      VALIDACAO_SEED: "42"
     ports:
       - "3000:3000"
     volumes:

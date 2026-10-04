@@ -31,6 +31,8 @@ export const envSchema = z.object({
   JWT_SECRET: z.string().min(1),
   JWT_EXPIRES_IN: z.string().default('7d'),
 
+  ADMIN_API_KEY: z.string().min(1),
+
   ATTEMPT_MAX_STEPS: numeroDeString(
     'ATTEMPT_MAX_STEPS deve ser numérico',
   ).default(3),

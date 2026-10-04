@@ -127,7 +127,9 @@ z.object({
 Gera o rascunho que o aluno vai reescrever. O rascunho é ponto de partida, não
 produto final.
 
-**Entrada:** título da seção, texto completo, conceitos extraídos.
+**Entrada:** título da seção, texto completo **ou trecho selecionado** (quando a
+ficha for de um recorte, não da seção inteira — `SCENARIOS.md`, divergência 4),
+conceitos extraídos.
 
 **Sistema:**
 

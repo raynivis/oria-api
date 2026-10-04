@@ -1,6 +1,6 @@
 # Tutora Oria — plano de implementação do backend
 
-Execução em nove fases. Cada fase tem escopo fechado, critério de aceite
+Execução em onze fases. Cada fase tem escopo fechado, critério de aceite
 verificável e dependências explícitas. Leia `CLAUDE.md` antes de começar; as
 cinco regras de lá valem para todas as fases.
 
@@ -62,7 +62,12 @@ JWT_SECRET, JWT_EXPIRES_IN=7d
 ATTEMPT_MAX_STEPS=3
 METACOG_CONFIANCA_MIN=70, METACOG_PASSOS_MIN=2.5
 RETRIEVAL_LIMIAR=0.72, RETRIEVAL_TOP_K=6
+ADMIN_API_KEY
 ```
+
+`VALIDACAO_MODELO`, `VALIDACAO_PROVIDER` e `VALIDACAO_SEED` (ver `VALIDATION.md`
+§2) não entram aqui: são consumidas só pelos scripts de `scripts/validacao/` da
+Fase 10, não pelo boot da aplicação.
 
 **Aceite.** `docker compose up` sobe tudo. `GET /health` retorna 200 com os três
 serviços em `ok`. Derrubar o TEI faz o health acusar. Subir com
@@ -146,7 +151,8 @@ POST /api/v1/admin/livros/ingerir   { arquivoPath } -> { jobId }
 GET  /api/v1/admin/jobs/:jobId      -> status do processamento
 ```
 
-Rota administrativa, protegida por chave de ambiente simples. Não há painel
+Rota administrativa, protegida por `ADMIN_API_KEY` (chave de ambiente simples,
+comparada direto, sem usuário/senha). Não há painel
 docente no escopo; isso é ferramenta de operação.
 
 Adicione `npm run seed`, que ingere tudo que estiver em `acervo/`.
@@ -199,12 +205,20 @@ Responsabilidades:
   saída, custo, duração.
 
 ```ts
-LlmCall   id, papel, modelo, promptVersao, tokensIn, tokensOut,
-          custo numeric, duracaoMs, sucesso bool, criadoEm
+LlmCall   id, papel, modelo, promptVersao,
+          entradaCompleta text, saidaBruta text,
+          temperatura numeric?, seed int?, provider text?,
+          tokensIn, tokensOut, custo numeric, duracaoMs,
+          sucesso bool, criadoEm
 ```
 
-Esse registro é o que responde ao eixo de custo de Yan et al. (2024) no
-Capítulo 5. Não é opcional.
+`entradaCompleta` e `saidaBruta` guardam o prompt como foi enviado e a resposta
+como veio. Não são log de depuração: são a fonte primária da validação do TCC e
+o conteúdo do Apêndice A. Ver `VALIDATION.md`.
+
+`LlmService.completar()` precisa aceitar `temperature`, `seed` e `provider` como
+opcionais e repassá-los ao OpenRouter. Durante a validação eles são fixados; em
+uso normal ficam ausentes.
 
 Panorama:
 
@@ -245,14 +259,17 @@ registra a chamada com custo.
 sistema.
 
 ```ts
-Fichamento        id, userId FK, sectionId FK, criadoEm, atualizadoEm
-                  unique(userId, sectionId)
+Fichamento        id, userId FK, sectionId FK, trechoCfi text?,
+                  criadoEm, atualizadoEm
+                  unique(userId, sectionId, trechoCfi), com índice parcial
+                  garantindo no máximo um registro de trechoCfi nulo (a ficha
+                  da seção inteira) por aluno e seção
 FichamentoVersao  id, fichamentoId FK, numero int, conteudo text,
                   origem: 'ia'|'aluno', promptVersao?, modelo?, criadoEm
 ```
 
 ```
-POST   /api/v1/secoes/:id/fichamento     gera rascunho (versão 1, origem 'ia')
+POST   /api/v1/secoes/:id/fichamento     { trechoCfi?, trechoTexto? } -> gera rascunho (versão 1, origem 'ia')
 GET    /api/v1/fichamentos/:id           última versão + metadados
 PATCH  /api/v1/fichamentos/:id           { conteudo } -> nova versão, origem 'aluno'
 GET    /api/v1/fichamentos/:id/versoes   histórico completo
@@ -260,6 +277,15 @@ DELETE /api/v1/fichamentos/:id
 GET    /api/v1/me/fichamentos            biblioteca pessoal, filtro por livro
 GET    /api/v1/me/fichamentos/exportar   markdown (?formato=md) ou PDF
 ```
+
+Sem corpo, `POST .../fichamento` gera o fichamento da seção inteira — é o
+"resumo" da Avaliação A e o passo 11 do Cenário 1 de `SCENARIOS.md`. Com
+`trechoCfi`/`trechoTexto`, gera uma ficha ancorada naquele recorte: mesmo
+endpoint, mesmo prompt `fichamento`, recebendo o trecho em vez do texto
+completo da seção como entrada. É o que sustenta o Cenário 2 (fichas por
+trecho) e a distinção de tarefas da Avaliação A (`SCENARIOS.md`, divergência 4).
+Cada combinação de seção + trecho é um `Fichamento` separado, com sua própria
+trilha de versões.
 
 `PATCH` **nunca** faz update no conteúdo: sempre insere nova `FichamentoVersao`
 com `numero = max + 1`. Um `UPDATE` aqui destrói o dado de pesquisa.
@@ -280,7 +306,8 @@ métrica de elaboração ativa do Capítulo 5, e sai de graça aqui.
 **Aceite.** Três `PATCH` sucessivos produzem versões 2, 3 e 4, todas
 recuperáveis. Nenhum `UPDATE` em `conteudo` existe no código. A exportação em
 markdown abre corretamente. `proporcaoAluno` bate com contagem manual num caso
-de teste.
+de teste. Gerar fichamento de dois trechos diferentes na mesma seção produz
+dois `Fichamento` distintos, cada um com sua própria trilha de versões.
 
 ---
 
@@ -288,6 +315,12 @@ de teste.
 
 **Objetivo.** Instrumentar antes das telas que geram mais dado. Vem antes das
 questões de propósito.
+
+**Escopo reduzido.** A validação do TCC é formativa e artificial, sem
+participantes (`VALIDATION.md`), e não consome telemetria de aluno. Implemente o
+essencial: a entidade, o endpoint de lote e as consultas. O esforço maior fica
+para o `LlmCall` da Fase 4, que é o que a validação de fato usa. Os eventos
+continuam valendo para o Cenário C e para o experimento futuro.
 
 ```ts
 ReadingEvent  id, userId FK, sectionId FK?, tipo, payload jsonb, criadoEm
@@ -306,8 +339,8 @@ O endpoint aceita lote porque o cliente acumula e envia a cada 30s. Idempotênci
 por `(userId, tipo, sectionId, criadoEm)` truncado ao segundo, para o caso de
 reenvio.
 
-Crie também `src/telemetry/consultas.sql` com as consultas de análise do
-Capítulo 5, ainda que o plano de avaliação não exista:
+Crie também `src/telemetry/consultas.sql` com as consultas de análise, úteis ao
+experimento futuro:
 
 - adesão: proporção de alunos com ao menos um fichamento;
 - elaboração: proporção de fichamentos com origem `aluno`;
@@ -346,8 +379,15 @@ A extração de conceitos roda na **ingestão** (estenda a Fase 2 quando chegar
 aqui), uma chamada por seção, cacheada. O prompt de `questions` recebe a lista de
 conceitos da seção e indica quais cada questão testa.
 
+`conceitoIds` é opcional e restringe a geração a um subconjunto dos conceitos da
+seção. Omitido, usa todos. É o que sustenta "gerar nova rodada sobre os
+conceitos que ficaram como 'a revisar'" (`VALIDATION.md`, seção 8.2) — o cliente
+consulta `/me/conceitos`, filtra os classificados como "a revisar" e repassa os
+ids aqui. Não é adaptação automática por desempenho: dificuldade e foco
+continuam sendo escolha explícita de quem chama o endpoint.
+
 ```
-POST /api/v1/secoes/:id/questoes         gera conjunto
+POST /api/v1/secoes/:id/questoes         { conceitoIds? } -> gera conjunto
 GET  /api/v1/conjuntos/:id
 POST /api/v1/questoes/:id/tentativas     { resposta } -> primeiro AttemptStep
 POST /api/v1/tentativas/:id/passos       { tipo, conteudo? } -> próximo passo
@@ -482,6 +522,42 @@ média não sinaliza. Alterar as envs não muda registros já gravados.
 
 ---
 
+## Fase 10 — Instrumentação de validação
+
+**Objetivo.** As entidades e scripts que a validação do TCC consome. Vem depois
+das Fases 5, 7 e 8, porque a bateria da Avaliação A precisa de fichamento,
+questões e diálogo todos gerando saída — não depende da Fase 9.
+
+O conteúdo está em `VALIDATION.md`: entidades `Execucao`, `Tarefa`, `Saida`,
+`CodigoCego` e `Pontuacao`, o modo linha de base e os sete scripts de
+`scripts/validacao/`. O roteiro da Avaliação C — os quatro cenários, os 24
+requisitos funcionais e a matriz de rastreabilidade — está em `SCENARIOS.md`.
+
+**Antes da geração**, confirme com o orientador as quatro divergências marcadas
+em `SCENARIOS.md` (seção "Divergências em relação ao roteiro original"): três já
+vêm de `VALIDATION.md` §8 e foram aplicadas na reescrita dos cenários; a quarta
+— `trechoCfi`/`trechoTexto` no endpoint de fichamento desta fase — é nova e
+afeta a Fase 5, por isso já está refletida ali.
+
+Inclua também a rota que a Avaliação C consome durante a demonstração:
+
+```
+GET /api/v1/admin/metricas/ultimas-chamadas?limite=20
+```
+
+Rota administrativa, protegida pela mesma chave da Fase 2. Retorna papel,
+modelo, tokens, custo e duração das últimas `LlmCall`, para o autor registrar
+tempo e tokens de cada passo dos cenários (`SCENARIOS.md`, seção "Registro por
+passo").
+
+**Aceite.** `npm run validacao:gerar-bateria` produz 60 saídas persistidas, com
+entrada e saída completas. `npm run validacao:calcular-kappa` roda contra
+pontuações de teste. `revelar.ts` recusa executar sem consenso registrado.
+`GET /admin/metricas/ultimas-chamadas` retorna as últimas chamadas em ordem
+decrescente de `criadoEm`, respeitando `limite`.
+
+---
+
 ## Ordem e dependências
 
 ```
@@ -496,6 +572,12 @@ média não sinaliza. Alterar as envs não muda registros já gravados.
          │        │  └─ 9 Metacognição
          │        └─ 8 Diálogo
 ```
+
+A Fase 10 não cabe na árvore acima como um único ramo: ela precisa das Fases 5,
+7 **e** 8 completas, não só da última da lista. A bateria da Avaliação A gera
+saídas de `resumo`/`ficha` (Fase 5), `questoes` (Fase 7) e `pergunta_na_secao`/
+`pergunta_ligacao`/`pergunta_fora` (Fase 8) — ela só roda depois que as três
+convergirem. A Fase 9 não é pré-requisito dela.
 
 Se o prazo apertar, as fases 0 a 6 já constituem um sistema defensável, que cobre
 duas das três lacunas do Capítulo 2. A fase 7 é a que sustenta a seção 2.2 e é a

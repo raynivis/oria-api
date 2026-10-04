@@ -5,7 +5,9 @@ Informação. NestJS + TypeORM + Postgres/pgvector + Redis, LLMs via OpenRouter,
 embeddings locais via TEI.
 
 Este arquivo é contexto permanente. O plano de execução está em
-`IMPLEMENTATION.md`.
+`IMPLEMENTATION.md`, os prompts em `PROMPTS.md`, o que a validação do TCC exige
+do código em `VALIDATION.md` e o roteiro de demonstração (Avaliação C) em
+`SCENARIOS.md`.
 
 ---
 
@@ -39,9 +41,11 @@ Se o banco não produz a informação, a API não a retorna. Vale especialmente 
 conceitos: conceito sem tentativa registrada não entra em "dominado" nem em "a
 revisar".
 
-**5. Telemetria desde o primeiro endpoint.**
-O plano de avaliação ainda não existe. Coletar é barato; não ter coletado é
-irrecuperável. Todo evento relevante vai para `ReadingEvent`.
+**5. Toda chamada de LLM é registrada por inteiro.**
+Entrada completa, saída, modelo, versão de prompt, parâmetros, tokens, custo e
+duração. Esses registros são a fonte primária da validação do TCC e compõem o
+Apêndice A. Não é instrumentação opcional: é dado de pesquisa.
+Base: metodologia DSR/FEDS, ver `VALIDATION.md`.
 
 ---
 
@@ -64,7 +68,7 @@ irrecuperável. Todo evento relevante vai para `ReadingEvent`.
 ```bash
 docker compose up -d          # sobe db, redis, embeddings
 npm run start:dev             # API em watch
-npm run migration:generate -- -n NomeDaMigration
+npm run migration:generate -- src/database/migrations/NomeDaMigration
 npm run migration:run
 npm run test                  # unit
 npm run test:e2e              # e2e
@@ -79,7 +83,8 @@ npm run seed                  # popula acervo de desenvolvimento
 - Todo endpoint tem DTO de entrada com `class-validator` e DTO de saída
   explícito. Nunca retornar entidade do TypeORM diretamente.
 - Nenhum módulo chama o OpenRouter direto. Tudo passa por `LlmService`, que
-  registra modelo, versão de prompt, tokens e custo.
+  registra em `LlmCall` entrada completa, saída, modelo, versão de prompt,
+  tokens e custo (regra 5).
 - Prompts ficam em `src/prompts/templates/*.ts`, com constante `VERSAO` exportada.
   Toda saída gerada grava a versão usada.
 - Migrations sempre versionadas. Nunca `synchronize: true`, nem em dev.
@@ -97,3 +102,14 @@ npm run seed                  # popula acervo de desenvolvimento
   citação incoerente.
 - **SSE com JWT.** `EventSource` não aceita header. O cliente consome o stream
   com `fetch` + `ReadableStream`; o servidor usa `@Sse()`.
+- **`epub2` não lê `nav.xhtml` (EPUB 3).** A lib só anda em `toc.ncx` (EPUB 2);
+  `epub.toc`/`epub.ncx` ficam vazios em qualquer EPUB 3 puro, como o fixture da
+  Fase 2. `EpubParserService` usa `epub2` só pra abrir o zip e ler
+  manifest/spine; a árvore de `Section` é montada na mão com `cheerio`,
+  andando no `nav.xhtml` (ou no `toc.ncx`, se não houver item com
+  `properties="nav"` no manifesto).
+- **Coluna `vector` e `migration:generate`.** O TypeORM não entende
+  `USING hnsw`: toda vez que você gerar uma migration que mexe em qualquer
+  tabela, ele tenta "corrigir" o índice HNSW do `chunk` de volta pra um índice
+  comum, destruindo-o. Sempre revise a migration gerada e apague qualquer
+  `DROP/CREATE INDEX` que toque em `IDX_chunks_embedding_hnsw` antes de rodar.

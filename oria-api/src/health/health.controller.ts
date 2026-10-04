@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
+import { Public } from '../auth/decorators/public.decorator';
 import { EmbeddingsHealthIndicator } from './indicators/embeddings.health-indicator';
 import { PostgresHealthIndicator } from './indicators/postgres.health-indicator';
 import { RedisHealthIndicator } from './indicators/redis.health-indicator';
@@ -13,6 +14,7 @@ export class HealthController {
     private readonly embeddings: EmbeddingsHealthIndicator,
   ) {}
 
+  @Public()
   @Get()
   @HealthCheck()
   verificar() {
