@@ -44,7 +44,7 @@ export const envSchema = z.object({
   ).default(2.5),
   RETRIEVAL_LIMIAR: numeroDeString(
     'RETRIEVAL_LIMIAR deve ser numérico',
-  ).default(0.72),
+  ).default(0.82),
   RETRIEVAL_TOP_K: numeroDeString('RETRIEVAL_TOP_K deve ser numérico').default(
     6,
   ),

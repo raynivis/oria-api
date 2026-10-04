@@ -13,6 +13,15 @@ import { FILA_INGESTAO, IngestaoJobData } from './ingestion.constants';
 
 const TAMANHO_LOTE_EMBEDDINGS = 32;
 
+/**
+ * Seções puramente estruturais (ex.: um capítulo cujo único conteúdo direto é
+ * o próprio título, com tudo de fato escrito dentro das subseções) não geram
+ * chunk. Um embedding de poucas palavras é ruído: na prática, ele cosine-
+ * similariza alto com consultas de qualquer assunto e viraria falso positivo
+ * na busca (Fase 3).
+ */
+const TAMANHO_MINIMO_PARA_CHUNK = 40;
+
 @Processor(FILA_INGESTAO)
 export class IngestionProcessor extends WorkerHost {
   private readonly logger = new Logger(IngestionProcessor.name);
@@ -85,6 +94,10 @@ export class IngestionProcessor extends WorkerHost {
     ancoraCfi: string,
     textoCompleto: string,
   ): Promise<void> {
+    if (textoCompleto.trim().length < TAMANHO_MINIMO_PARA_CHUNK) {
+      return;
+    }
+
     const trechos = this.chunkingService.dividir(textoCompleto);
     if (trechos.length === 0) {
       return;

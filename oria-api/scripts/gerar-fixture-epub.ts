@@ -4,14 +4,46 @@ import { ZipArchive } from 'archiver';
 
 const CAPITULOS = [1, 2, 3];
 
+/**
+ * Cada subseção fala de um tema diferente e sem relação com os outros — o
+ * fixture serve também para testar busca semântica (Fase 3): uma consulta
+ * sobre um desses temas precisa achar a seção certa, e uma consulta fora de
+ * todos eles precisa voltar vazia.
+ */
+const TOPICOS: Record<string, string> = {
+  '1-1':
+    'Fotossíntese é o processo pelo qual plantas convertem luz solar em ' +
+    'energia química. Cloroplastos usam clorofila para captar fótons e ' +
+    'produzir glicose a partir de água e dióxido de carbono.',
+  '1-2':
+    'O ciclo da água descreve o movimento contínuo da água entre a ' +
+    'atmosfera, a superfície terrestre e os oceanos. Evaporação, ' +
+    'condensação e precipitação são as três etapas principais desse ciclo.',
+  '2-1':
+    'A Revolução Francesa começou em 1789 e derrubou a monarquia ' +
+    'absolutista, instaurando ideais de liberdade, igualdade e ' +
+    'fraternidade que influenciaram movimentos políticos em todo o mundo.',
+  '2-2':
+    'A independência do Brasil foi proclamada em 1822 por Dom Pedro I, ' +
+    'encerrando o domínio colonial português e dando início ao primeiro ' +
+    'Império Brasileiro.',
+  '3-1':
+    'Aprendizado de máquina é um ramo da inteligência artificial em que ' +
+    'algoritmos aprendem padrões a partir de dados, sem serem programados ' +
+    'explicitamente para cada tarefa.',
+  '3-2':
+    'Redes de computadores conectam dispositivos para troca de dados ' +
+    'usando protocolos como TCP/IP, permitindo comunicação entre máquinas ' +
+    'em diferentes partes do mundo.',
+};
+
 function paginaCapitulo(numero: number): string {
   const subsecoes = [1, 2]
     .map(
       (sub) => `
 <section id="sub${sub}">
 <h2>Capítulo ${numero}.${sub}</h2>
-<p>Texto de teste da subseção ${numero}.${sub}. Conteúdo curto e previsível,
-gerado para o fixture automatizado da Tutora Oria.</p>
+<p>${TOPICOS[`${numero}-${sub}`]}</p>
 </section>`,
     )
     .join('\n');

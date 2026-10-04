@@ -113,3 +113,31 @@ npm run seed                  # popula acervo de desenvolvimento
   tabela, ele tenta "corrigir" o índice HNSW do `chunk` de volta pra um índice
   comum, destruindo-o. Sempre revise a migration gerada e apague qualquer
   `DROP/CREATE INDEX` que toque em `IDX_chunks_embedding_hnsw` antes de rodar.
+- **`RETRIEVAL_LIMIAR` não é 0,72 com `multilingual-e5-base`.** Medido direto
+  contra o TEI: pares *sem relação nenhuma* de assunto cosine-similarizam na
+  faixa de 0,72–0,79 com esse modelo (é característica conhecida da família
+  E5 — o "chão" de similaridade é alto). Com 0,72 a busca da Fase 3 vira
+  sopa de letrinha, retornando qualquer seção para qualquer pergunta. Medidas
+  reais: par correto ~0,87–0,91; par errado, no máximo ~0,79. `0.82` (o
+  default atual) fica no meio do caminho. Se trocar de modelo de embeddings,
+  remeça essa calibração — não assuma o mesmo limiar.
+- **Seção sem texto próprio não gera chunk.** Um capítulo cujo corpo inteiro
+  mora nas subseções (nada fora delas) teria só o título como `textoCompleto`
+  — "Capítulo 1" sozinho embeda com similaridade alta para qualquer consulta
+  (embedding de poucas palavras tende ao centro do espaço vetorial) e vira
+  falso positivo. `IngestionProcessor` pula o chunking de seções com menos de
+  `TAMANHO_MINIMO_PARA_CHUNK` (40) caracteres de texto próprio.
+- **Modelo `:free` do OpenRouter pode sumir de um dia para o outro.** O
+  catálogo de modelos gratuitos muda sem aviso — um slug que funcionava ontem
+  pode responder 404 ("model unavailable for free") ou 429 (rate limit do
+  provedor upstream) hoje. Antes de rodar qualquer coisa contra o OpenRouter
+  de verdade, confirme o modelo em `GET https://openrouter.ai/api/v1/models`
+  (filtre por `id` terminando em `:free`) em vez de confiar num slug fixo nos
+  exemplos. `LlmService` grava toda tentativa em `LlmCall` mesmo quando falha
+  (inclusive 404/429), então essas falhas não se perdem — mas também não
+  tentam adivinhar outro modelo sozinhas.
+- **Exportação de fichamentos em PDF não está implementada.** `IMPLEMENTATION.md`
+  (Fase 5) previa markdown ou PDF em `GET /me/fichamentos/exportar`. Nenhum
+  cenário de `SCENARIOS.md` exercita o PDF — só o markdown (Cenário 2, passo
+  10). `?formato=pdf` responde `400` explicitamente em vez de simular ou
+  falhar silenciosamente. Se a Avaliação C vier a pedir PDF, implementar aí.

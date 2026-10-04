@@ -30,7 +30,6 @@ describe('EpubParserService', () => {
       for (const filha of filhas) {
         expect(filha.nivel).toBe(2);
         expect(filha.textoCompleto.length).toBeGreaterThan(0);
-        expect(filha.textoCompleto).toContain('Texto de teste da subseção');
       }
     }
 

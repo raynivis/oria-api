@@ -6,9 +6,12 @@ import { CatalogModule } from './catalog/catalog.module';
 import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { EmbeddingsModule } from './embeddings/embeddings.module';
+import { FichamentosModule } from './fichamentos/fichamentos.module';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
+import { PanoramaModule } from './panorama/panorama.module';
 import { QueueModule } from './queue/queue.module';
+import { RetrievalModule } from './retrieval/retrieval.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -22,6 +25,9 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     CatalogModule,
     IngestionModule,
+    RetrievalModule,
+    PanoramaModule,
+    FichamentosModule,
   ],
   providers: [
     {
