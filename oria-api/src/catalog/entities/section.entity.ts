@@ -49,4 +49,8 @@ export class Section {
 
   @Column('text')
   textoCompleto: string;
+
+  /** Marca que a extração de conceitos (papel `concepts`) já foi feita e cacheada. */
+  @Column({ type: 'timestamptz', nullable: true })
+  conceitosExtraidosEm?: Date | null;
 }

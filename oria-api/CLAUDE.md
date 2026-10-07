@@ -101,7 +101,9 @@ npm run seed                  # popula acervo de desenvolvimento
 - **Chunk não atravessa seção.** Chunk que cruza fronteira de capítulo produz
   citação incoerente.
 - **SSE com JWT.** `EventSource` não aceita header. O cliente consome o stream
-  com `fetch` + `ReadableStream`; o servidor usa `@Sse()`.
+  com `fetch` + `ReadableStream`. O endpoint de mensagens é `POST`, e o `@Sse()`
+  do Nest só aceita GET, então o stream é escrito à mão com `text/event-stream`
+  (`SessoesController.enviar`).
 - **`epub2` não lê `nav.xhtml` (EPUB 3).** A lib só anda em `toc.ncx` (EPUB 2);
   `epub.toc`/`epub.ncx` ficam vazios em qualquer EPUB 3 puro, como o fixture da
   Fase 2. `EpubParserService` usa `epub2` só pra abrir o zip e ler
@@ -136,6 +138,10 @@ npm run seed                  # popula acervo de desenvolvimento
   exemplos. `LlmService` grava toda tentativa em `LlmCall` mesmo quando falha
   (inclusive 404/429), então essas falhas não se perdem — mas também não
   tentam adivinhar outro modelo sozinhas.
+- **`npm run start:dev` e `npm run test:e2e` não podem rodar juntos.** Os dois
+  consomem a mesma fila BullMQ no mesmo Redis, e o worker do dev server pega os
+  jobs de ingestão dos testes e falha contra o banco de desenvolvimento. Pare o
+  dev server antes de rodar o e2e.
 - **Exportação de fichamentos em PDF não está implementada.** `IMPLEMENTATION.md`
   (Fase 5) previa markdown ou PDF em `GET /me/fichamentos/exportar`. Nenhum
   cenário de `SCENARIOS.md` exercita o PDF — só o markdown (Cenário 2, passo

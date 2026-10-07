@@ -10,8 +10,11 @@ import { FichamentosModule } from './fichamentos/fichamentos.module';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { PanoramaModule } from './panorama/panorama.module';
+import { DialogueModule } from './dialogue/dialogue.module';
+import { QuestoesModule } from './questoes/questoes.module';
 import { QueueModule } from './queue/queue.module';
 import { RetrievalModule } from './retrieval/retrieval.module';
+import { TelemetryModule } from './telemetry/telemetry.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -28,6 +31,9 @@ import { UsersModule } from './users/users.module';
     RetrievalModule,
     PanoramaModule,
     FichamentosModule,
+    TelemetryModule,
+    QuestoesModule,
+    DialogueModule,
   ],
   providers: [
     {

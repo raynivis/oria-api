@@ -312,15 +312,13 @@ conhecimento geral, não especule, não ofereça uma resposta aproximada.
 Máximo quatro parágrafos.
 ```
 
-**Schema:**
-
-```ts
-z.object({
-  resposta: z.string(),
-  chunksCitados: z.array(z.string().uuid()),
-  encontrouBase: z.boolean(),
-})
-```
+**Saída:** texto puro em stream, não JSON. Os três campos do schema original
+continuam existindo nos dados, derivados assim: `resposta` é o texto acumulado;
+`chunksCitados` são os marcadores `[n]` do texto mapeados para os chunks
+numerados na entrada (`src/dialogue/interpretacao.ts`); `encontrouBase` é falso
+quando não há chunk recuperado ou quando o texto contém a frase exata de recusa.
+JSON não se valida enquanto chega em fatias, e o aluno precisa ver os tokens
+conforme saem. Mudança registrada em `IMPLEMENTATION.md`, Fase 8.
 
 Na prática o caso de recusa raramente chega ao modelo: a Fase 8 verifica a
 recuperação antes e responde a recusa sem chamar o LLM. A instrução no prompt é
@@ -333,6 +331,40 @@ um resumo" e o modelo atender ao mesmo pedido digitado.
 
 ---
 
+## 7. `avaliacao` — juiz interno
+
+Decide se a justificativa do estudante sustenta a resposta de referência. O
+veredito é gravado em `attempt_steps.avaliacaoSuficiente` e **nunca** sai na API:
+serve só para escolher o próximo passo (encerrar ou dar a próxima dica). Não é
+mostrado ao estudante, por isso não segue o bloco de identidade compartilhado.
+
+**Entrada:** enunciado, resposta de referência, justificativa do estudante,
+chunks da questão.
+
+**Sistema:**
+
+```
+Você avalia, para uso interno, se a justificativa de um estudante sustenta
+uma resposta correta à questão, com base no material fornecido e na resposta de
+referência.
+
+Considere suficiente a justificativa que aponta o raciocínio central da resposta
+de referência, mesmo com palavras diferentes. Considere insuficiente a que
+erra o raciocínio, cita trecho que não sustenta a resposta, ou não responde.
+
+Não escreva nenhum comentário. Responda só com um objeto JSON:
+{ "suficiente": true }  ou  { "suficiente": false }
+```
+
+**Schema:** `z.object({ suficiente: z.boolean() })`
+
+Acrescentado na Fase 7 (IMPLEMENTATION.md). Não existia no plano original: a
+máquina de estados precisa saber se a justificativa foi suficiente para
+encerrar a tentativa com 1 passo, e a especificação não definia como isso
+seria decidido. Ver os desvios registrados na Fase 7 de `IMPLEMENTATION.md`.
+
+---
+
 ## Tabela de papéis
 
 | Papel | Quando roda | Exigência dominante |
@@ -342,6 +374,7 @@ um resumo" e o modelo atender ao mesmo pedido digitado.
 | `fichamento` | Sob demanda do aluno | Contexto longo, volume |
 | `questions` | Sob demanda, por seção e aluno | Saída estruturada, vínculo com conceito |
 | `hint` | A cada passo | **Aderência à restrição** |
+| `avaliacao` | A cada justificativa do estudante | Saída binária, interna |
 | `dialogue` | A cada mensagem | **Aderência à restrição** |
 
 Os dois últimos são os que não admitem modelo barato. É neles que o aluno tenta

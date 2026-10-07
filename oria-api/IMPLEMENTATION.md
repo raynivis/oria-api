@@ -428,6 +428,27 @@ intermediária contém veredito. Pedir resolução no passo 2 retorna 400. Recar
 a tentativa preserva o contador. Conceito sem tentativa não aparece em
 `/me/conceitos`.
 
+**Desvios registrados na implementação**
+
+- **Juiz interno (papel `avaliacao`).** A especificação não dizia como
+  "resolvida com 0 ou 1 passo" acontece sem veredito ao estudante. Decisão: um
+  LLM compara a justificativa com a resposta de referência e grava o resultado
+  em `attempt_steps.avaliacaoSuficiente`, que nunca sai na API. Prompt em
+  `PROMPTS.md`, seção 7.
+- **Quatro estados, não cinco.** O enum tem `aberta`, `em_passos`, `resolvida`
+  e `abandonada`. O aceite menciona cinco; a contagem extra não tinha definição.
+- **Extração de conceitos sob demanda.** Não roda na ingestão. Roda na primeira
+  leitura de `/secoes/:id/conceitos` ou na geração de questões, com lock e cache
+  por seção (`sections.conceitosExtraidosEm`). Motivo: ingestão que depende de
+  LLM externo faria o livro cair em `erro` por queda de rede e tornaria os e2e
+  de ingestão não determinísticos.
+- **`nPassos` conta dicas entregues**, incluindo o pedido de justificativa inicial.
+  Justificativas do estudante não contam. Mantido pelo servidor a cada passo.
+- **Dificuldade não é parâmetro.** `POST /secoes/:id/questoes` aceita só
+  `conceitoIds`, como especificado. Quantidade fixa em 5.
+- **Classificação só considera tentativas encerradas** (`resolvida` ou
+  `abandonada`). Tentativa em andamento não classifica o conceito ainda.
+
 ---
 
 ## Fase 8 — Diálogo com stream
@@ -471,6 +492,24 @@ Fluxo do handler:
 **Aceite.** Pergunta sobre tema do fixture recebe resposta com ao menos uma
 citação. Pergunta fora do material recebe recusa sem chamar o LLM — verificável
 porque nenhum `LlmCall` é gravado. O stream fecha corretamente em caso de erro.
+
+**Desvios registrados na implementação**
+
+- **`POST` com stream, não `@Sse()`.** O decorator do Nest aceita só GET, e o
+  endpoint de mensagens é POST. O stream é escrito à mão, com `text/event-stream`.
+  Se o cliente fechar a conexão antes do fim, a chamada ao LLM é cancelada e o
+  `LlmCall` fica com `sucesso = false` e a saída parcial.
+- **Saída em texto puro, não JSON.** O schema `{resposta, chunksCitados, encontrouBase}`
+  de `PROMPTS.md` não se valida em stream. As citações vêm dos marcadores `[n]`
+  do texto. Ver `PROMPTS.md`, papel `dialogue`.
+- **Evento `erro` adicionado.** Falha do LLM durante o stream emite `erro` e
+  fecha o stream. Não grava mensagem da tutora. A mensagem do aluno já ficou
+  salva antes, para não perder a pergunta.
+- **`encontrouBase` é nulo nas mensagens do aluno.** Elas não passam pela
+  recuperação, então o campo não se aplica a elas.
+- **Recusa por recuperação vazia não chama o LLM.** Recusa que vem do modelo
+  (quando os chunks não sustentam a resposta) chama o LLM normalmente e fica
+  registrada em `LlmCall`.
 
 ---
 

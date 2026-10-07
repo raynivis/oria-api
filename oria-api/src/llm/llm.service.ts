@@ -4,8 +4,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import axios from 'axios';
 import { Repository } from 'typeorm';
 import type { ZodType } from 'zod';
+import * as conceptsTemplate from '../prompts/templates/concepts';
+import * as dialogueTemplate from '../prompts/templates/dialogue';
 import * as fichamentoTemplate from '../prompts/templates/fichamento';
+import * as hintTemplate from '../prompts/templates/hint';
+import * as avaliacaoTemplate from '../prompts/templates/avaliacao';
 import * as panoramaTemplate from '../prompts/templates/panorama';
+import * as questionsTemplate from '../prompts/templates/questions';
 import { LlmCall } from './entities/llm-call.entity';
 import { MensagemChat, OpcoesCompletar, PapelLlm } from './llm.types';
 
@@ -17,6 +22,11 @@ interface ModuloTemplate {
 const TEMPLATES: Partial<Record<PapelLlm, ModuloTemplate>> = {
   panorama: panoramaTemplate,
   fichamento: fichamentoTemplate,
+  concepts: conceptsTemplate,
+  questions: questionsTemplate,
+  hint: hintTemplate,
+  avaliacao: avaliacaoTemplate,
+  dialogue: dialogueTemplate,
 };
 
 const ENV_POR_PAPEL: Record<PapelLlm, string> = {
@@ -26,6 +36,7 @@ const ENV_POR_PAPEL: Record<PapelLlm, string> = {
   panorama: 'LLM_PANORAMA_MODEL',
   questions: 'LLM_QUESTIONS_MODEL',
   concepts: 'LLM_CONCEPTS_MODEL',
+  avaliacao: 'LLM_AVALIACAO_MODEL',
 };
 
 const MAXIMO_TENTATIVAS = 2;
@@ -33,6 +44,15 @@ const MAXIMO_TENTATIVAS = 2;
 type ResultadoTentativa<T> =
   | { sucesso: true; dados: T }
   | { sucesso: false; erro: string };
+
+export interface ResultadoTransmissao {
+  texto: string;
+  tokensIn: number;
+  tokensOut: number;
+  custo: number;
+  promptVersao: number;
+  modelo: string;
+}
 
 @Injectable()
 export class LlmService {
@@ -151,6 +171,133 @@ export class LlmService {
     );
 
     return sucesso ? { sucesso: true, dados: dados! } : { sucesso: false, erro: mensagemErro };
+  }
+
+  /**
+   * Stream de texto puro (papel `dialogue`). Repassa cada fatia ao chamador
+   * conforme chega e grava o `LlmCall` ao fim, com sucesso ou falha, inclusive
+   * quando o chamador cancela pelo `signal`.
+   */
+  async transmitir(
+    papel: PapelLlm,
+    variaveis: object,
+    aoReceberFatia: (fatia: string) => void,
+    sinal?: AbortSignal,
+  ): Promise<ResultadoTransmissao> {
+    const modelo = this.resolverModelo(papel);
+    const template = this.carregarTemplate(papel);
+    const mensagens = template.montarMensagens(variaveis as never);
+    const entradaCompleta = JSON.stringify(mensagens);
+    const inicio = Date.now();
+
+    let saidaBruta = '';
+    let tokensIn = 0;
+    let tokensOut = 0;
+    let custo = 0;
+    let sucesso = false;
+    let mensagemErro = '';
+
+    try {
+      const baseUrl = this.configService.get<string>('OPENROUTER_BASE_URL');
+      const apiKey = this.configService.get<string>('OPENROUTER_API_KEY');
+      const resposta = await axios.post(
+        `${baseUrl}/chat/completions`,
+        {
+          model: modelo,
+          messages: mensagens,
+          stream: true,
+          usage: { include: true },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          responseType: 'stream',
+          timeout: 60000,
+          signal: sinal,
+        },
+      );
+
+      await new Promise<void>((resolve, reject) => {
+        const fluxo = resposta.data as NodeJS.ReadableStream;
+        let pendente = '';
+
+        const processarLinha = (linha: string) => {
+          if (!linha.startsWith('data: ')) {
+            return;
+          }
+          const carga = linha.slice('data: '.length).trim();
+          if (carga === '[DONE]' || carga === '') {
+            return;
+          }
+          const evento = JSON.parse(carga) as {
+            error?: { message?: string };
+            choices?: Array<{ delta?: { content?: string } }>;
+            usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
+          };
+          if (evento.error) {
+            throw new Error(evento.error.message ?? 'Erro no stream do OpenRouter.');
+          }
+          const fatia = evento.choices?.[0]?.delta?.content;
+          if (fatia) {
+            saidaBruta += fatia;
+            aoReceberFatia(fatia);
+          }
+          if (evento.usage) {
+            tokensIn = evento.usage.prompt_tokens ?? tokensIn;
+            tokensOut = evento.usage.completion_tokens ?? tokensOut;
+            custo = evento.usage.cost ?? custo;
+          }
+        };
+
+        fluxo.on('data', (pedaco: Buffer) => {
+          try {
+            pendente += pedaco.toString('utf8');
+            const linhas = pendente.split('\n');
+            pendente = linhas.pop() ?? '';
+            linhas.forEach(processarLinha);
+          } catch (erro) {
+            reject(erro);
+          }
+        });
+        fluxo.on('end', () => {
+          try {
+            processarLinha(pendente);
+            resolve();
+          } catch (erro) {
+            reject(erro);
+          }
+        });
+        fluxo.on('error', reject);
+      });
+
+      sucesso = true;
+    } catch (erro) {
+      mensagemErro =
+        erro instanceof Error ? erro.message : 'Erro desconhecido ao transmitir o LLM.';
+    }
+
+    await this.llmCallsRepository.save(
+      this.llmCallsRepository.create({
+        papel,
+        modelo,
+        promptVersao: template.VERSAO,
+        entradaCompleta,
+        saidaBruta,
+        tokensIn,
+        tokensOut,
+        custo,
+        duracaoMs: Date.now() - inicio,
+        sucesso,
+      }),
+    );
+
+    if (!sucesso) {
+      throw new Error(mensagemErro);
+    }
+
+    return { texto: saidaBruta, tokensIn, tokensOut, custo, promptVersao: template.VERSAO, modelo };
   }
 
   private async chamarOpenRouter(

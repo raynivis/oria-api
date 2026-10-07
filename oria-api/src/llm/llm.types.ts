@@ -4,6 +4,7 @@ export type PapelLlm =
   | 'fichamento'
   | 'questions'
   | 'hint'
+  | 'avaliacao'
   | 'dialogue';
 
 export interface MensagemChat {

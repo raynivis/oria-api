@@ -27,6 +27,7 @@ export const envSchema = z.object({
   LLM_PANORAMA_MODEL: z.string().min(1),
   LLM_QUESTIONS_MODEL: z.string().min(1),
   LLM_CONCEPTS_MODEL: z.string().min(1),
+  LLM_AVALIACAO_MODEL: z.string().min(1),
 
   JWT_SECRET: z.string().min(1),
   JWT_EXPIRES_IN: z.string().default('7d'),

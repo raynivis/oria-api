@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { z } from 'zod';
 import { LlmService } from './llm.service';
 import { LlmCall } from './entities/llm-call.entity';
+import { PapelLlm } from './llm.types';
 
 jest.mock('axios');
 const axiosMock = axios as jest.Mocked<typeof axios>;
@@ -165,7 +166,7 @@ describe('LlmService', () => {
     const service = new LlmService(criarConfigService(), repositorio);
 
     await expect(
-      service.completar('dialogue', {}, schemaTeste),
+      service.completar('inexistente' as PapelLlm, {}, schemaTeste),
     ).rejects.toThrow(/Nenhum template de prompt registrado/);
   });
 });
