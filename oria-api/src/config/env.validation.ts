@@ -49,6 +49,15 @@ export const envSchema = z.object({
   RETRIEVAL_TOP_K: numeroDeString('RETRIEVAL_TOP_K deve ser numérico').default(
     6,
   ),
+
+  /**
+   * Só usadas pelos scripts de `scripts/validacao/` (Fase 10). Opcionais aqui
+   * para não impedir o boot normal da API — os scripts validam a presença
+   * delas sozinhos, com erro claro, antes de gerar qualquer saída.
+   */
+  VALIDACAO_MODELO: z.string().min(1).optional(),
+  VALIDACAO_PROVIDER: z.string().min(1).optional(),
+  VALIDACAO_SEED: numeroDeString('VALIDACAO_SEED deve ser numérico').optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

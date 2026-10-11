@@ -169,4 +169,75 @@ describe('LlmService', () => {
       service.completar('inexistente' as PapelLlm, {}, schemaTeste),
     ).rejects.toThrow(/Nenhum template de prompt registrado/);
   });
+
+  describe('completarParaValidacao (Fase 10)', () => {
+    const mensagens = [{ role: 'user' as const, content: 'pergunta' }];
+    const opcoesGeracao = { temperature: 0, seed: 42, provider: 'provedor-fixo' };
+
+    it('com jsonMode false, não envia response_format e devolve o texto puro', async () => {
+      axiosMock.post.mockResolvedValue(respostaOpenRouter('texto livre, sem JSON'));
+      const { repositorio, linhasSalvas } = criarRepositorioFalso();
+      const service = new LlmService(criarConfigService(), repositorio);
+
+      const resultado = await service.completarParaValidacao(
+        'validacao:pergunta_fora',
+        'modelo-fixo-da-validacao',
+        mensagens,
+        1,
+        opcoesGeracao,
+        false,
+      );
+
+      expect(resultado).toMatchObject({ sucesso: true, saidaBruta: 'texto livre, sem JSON' });
+      const corpoEnviado = axiosMock.post.mock.calls[0][1] as Record<string, unknown>;
+      expect(corpoEnviado.response_format).toBeUndefined();
+      expect(corpoEnviado.model).toBe('modelo-fixo-da-validacao');
+      expect(corpoEnviado.temperature).toBe(0);
+      expect(corpoEnviado.provider).toEqual({ order: ['provedor-fixo'], allow_fallbacks: false });
+      expect(linhasSalvas[0]).toMatchObject({
+        papel: 'validacao:pergunta_fora',
+        modelo: 'modelo-fixo-da-validacao',
+        sucesso: true,
+      });
+    });
+
+    it('com jsonMode true, envia response_format json_object', async () => {
+      axiosMock.post.mockResolvedValue(respostaOpenRouter('{"conteudo":"x"}'));
+      const { repositorio } = criarRepositorioFalso();
+      const service = new LlmService(criarConfigService(), repositorio);
+
+      await service.completarParaValidacao(
+        'validacao:resumo',
+        'modelo-fixo-da-validacao',
+        mensagens,
+        1,
+        opcoesGeracao,
+        true,
+      );
+
+      const corpoEnviado = axiosMock.post.mock.calls[0][1] as Record<string, unknown>;
+      expect(corpoEnviado.response_format).toEqual({ type: 'json_object' });
+    });
+
+    it('em falha, não tenta de novo e não lança: devolve sucesso false com o erro', async () => {
+      axiosMock.post.mockRejectedValue(new Error('ECONNRESET'));
+      const { repositorio, linhasSalvas } = criarRepositorioFalso();
+      const service = new LlmService(criarConfigService(), repositorio);
+
+      const resultado = await service.completarParaValidacao(
+        'validacao:resumo',
+        'modelo-fixo-da-validacao',
+        mensagens,
+        1,
+        opcoesGeracao,
+        true,
+      );
+
+      expect(axiosMock.post).toHaveBeenCalledTimes(1);
+      expect(resultado.sucesso).toBe(false);
+      expect(resultado.erro).toMatch(/ECONNRESET/);
+      expect(linhasSalvas).toHaveLength(1);
+      expect(linhasSalvas[0].sucesso).toBe(false);
+    });
+  });
 });

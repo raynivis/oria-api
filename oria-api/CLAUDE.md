@@ -147,3 +147,15 @@ npm run seed                  # popula acervo de desenvolvimento
   cenário de `SCENARIOS.md` exercita o PDF — só o markdown (Cenário 2, passo
   10). `?formato=pdf` responde `400` explicitamente em vez de simular ou
   falhar silenciosamente. Se a Avaliação C vier a pedir PDF, implementar aí.
+- **`autoLoadEntities: true` não enxerga entidade nova sozinho.** O
+  `DatabaseModule` usa `autoLoadEntities`, que só registra uma entidade na
+  metadata do TypeORM em tempo de execução se ela aparecer em algum
+  `TypeOrmModule.forFeature([...])` de algum módulo importado pelo `AppModule`.
+  Criar o arquivo `*.entity.ts` e escrever a migration não basta — faltando o
+  `forFeature`, qualquer `dataSource.getRepository(Entidade)` (inclusive nos
+  scripts de `scripts/validacao/`, que não usam injeção de dependência) erra
+  com "No metadata for ... was found", sem pista de qual módulo falta. O
+  `data-source.ts` usado pelo `migration:generate`/`migration:run` é um
+  `DataSource` separado, com glob `entities: [...**/*.entity{.ts,.js}]` — ele
+  enxerga o arquivo e gera a migration normalmente, o que mascara o problema
+  até alguém tentar usar a entidade em runtime.

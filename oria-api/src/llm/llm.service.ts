@@ -12,6 +12,7 @@ import * as avaliacaoTemplate from '../prompts/templates/avaliacao';
 import * as panoramaTemplate from '../prompts/templates/panorama';
 import * as questionsTemplate from '../prompts/templates/questions';
 import { LlmCall } from './entities/llm-call.entity';
+import { extrairJson } from './extrair-json';
 import { MensagemChat, OpcoesCompletar, PapelLlm } from './llm.types';
 
 interface ModuloTemplate {
@@ -77,7 +78,7 @@ export class LlmService {
     schema: ZodType<T>,
     opcoes?: OpcoesCompletar,
   ): Promise<T> {
-    const modelo = this.resolverModelo(papel);
+    const modelo = opcoes?.modelo ?? this.resolverModelo(papel);
     const template = this.carregarTemplate(papel);
     const mensagens = template.montarMensagens(variaveis as never);
 
@@ -136,7 +137,7 @@ export class LlmService {
       tokensOut = resposta.tokensOut;
       custo = resposta.custo;
 
-      const json = this.extrairJson(saidaBruta);
+      const json = extrairJson(saidaBruta);
       const resultado = schema.safeParse(json);
 
       if (resultado.success) {
@@ -300,10 +301,80 @@ export class LlmService {
     return { texto: saidaBruta, tokensIn, tokensOut, custo, promptVersao: template.VERSAO, modelo };
   }
 
+  /**
+   * Usado só pela Fase 10 (`scripts/validacao/gerar-bateria.ts`): uma chamada
+   * só, sem retry — o script decide se retenta — com modelo e parâmetros de
+   * geração explícitos (`VALIDACAO_MODELO`, `temperature: 0`, `seed`,
+   * `provider`), nunca os resolvidos por papel do produto. `jsonMode: false`
+   * é o que permite reaproveitar o prompt `dialogue` (texto livre) fora do
+   * stream, para o condição "oria" das tarefas de pergunta.
+   */
+  async completarParaValidacao(
+    papel: string,
+    modelo: string,
+    mensagens: MensagemChat[],
+    promptVersao: number,
+    opcoesGeracao: { temperature: number; seed: number; provider: string },
+    jsonMode: boolean,
+  ): Promise<{
+    entradaCompleta: string;
+    saidaBruta: string;
+    tokensIn: number;
+    tokensOut: number;
+    custo: number;
+    duracaoMs: number;
+    sucesso: boolean;
+    erro?: string;
+  }> {
+    const entradaCompleta = JSON.stringify(mensagens);
+    const inicio = Date.now();
+    let saidaBruta = '';
+    let tokensIn = 0;
+    let tokensOut = 0;
+    let custo = 0;
+    let sucesso = false;
+    let erro: string | undefined;
+
+    try {
+      const resposta = await this.chamarOpenRouter(modelo, mensagens, opcoesGeracao, jsonMode);
+      saidaBruta = resposta.conteudo;
+      tokensIn = resposta.tokensIn;
+      tokensOut = resposta.tokensOut;
+      custo = resposta.custo;
+      sucesso = true;
+    } catch (erroChamada) {
+      erro =
+        erroChamada instanceof Error ? erroChamada.message : 'Erro desconhecido ao chamar o LLM.';
+    }
+
+    const duracaoMs = Date.now() - inicio;
+
+    await this.llmCallsRepository.save(
+      this.llmCallsRepository.create({
+        papel,
+        modelo,
+        promptVersao,
+        entradaCompleta,
+        saidaBruta,
+        temperatura: opcoesGeracao.temperature,
+        seed: opcoesGeracao.seed,
+        provider: opcoesGeracao.provider,
+        tokensIn,
+        tokensOut,
+        custo,
+        duracaoMs,
+        sucesso,
+      }),
+    );
+
+    return { entradaCompleta, saidaBruta, tokensIn, tokensOut, custo, duracaoMs, sucesso, erro };
+  }
+
   private async chamarOpenRouter(
     modelo: string,
     mensagens: MensagemChat[],
     opcoes?: OpcoesCompletar,
+    jsonMode = true,
   ): Promise<{
     conteudo: string;
     tokensIn: number;
@@ -316,9 +387,11 @@ export class LlmService {
     const corpo: Record<string, unknown> = {
       model: modelo,
       messages: mensagens,
-      response_format: { type: 'json_object' },
       usage: { include: true },
     };
+    if (jsonMode) {
+      corpo.response_format = { type: 'json_object' };
+    }
 
     if (opcoes?.temperature !== undefined) {
       corpo.temperature = opcoes.temperature;
@@ -349,14 +422,6 @@ export class LlmService {
       tokensOut: dados.usage?.completion_tokens ?? 0,
       custo: dados.usage?.cost ?? 0,
     };
-  }
-
-  private extrairJson(texto: string): unknown {
-    const limpo = texto
-      .trim()
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/```\s*$/i, '');
-    return JSON.parse(limpo);
   }
 
   private resolverModelo(papel: PapelLlm): string {

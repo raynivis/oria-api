@@ -19,4 +19,6 @@ export interface OpcoesCompletar {
   seed?: number;
   /** Idem — nome do provedor fixado no OpenRouter, com allow_fallbacks: false. */
   provider?: string;
+  /** Idem — sobrepõe o modelo resolvido pela env do papel (`VALIDACAO_MODELO`). */
+  modelo?: string;
 }

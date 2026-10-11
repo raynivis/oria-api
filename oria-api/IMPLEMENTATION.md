@@ -559,6 +559,20 @@ painel docente no escopo, o status é alterado direto no banco.
 **Aceite.** Confiança 85 com média de 3 passos sinaliza; confiança 40 com a mesma
 média não sinaliza. Alterar as envs não muda registros já gravados.
 
+**Desvios registrados na implementação**
+
+- **`observacaoIa` fica nula quando não sinaliza.** A especificação só dá o
+  texto para o caso de ilusão detectada. Sem ilusão, não há observação — não
+  inventei uma mensagem alternativa.
+- **Média de passos considera só tentativas encerradas** (`resolvida` ou
+  `abandonada`), mesmo critério da classificação de conceitos da Fase 7.
+  Tentativa em andamento não entra: o número de passos ainda pode mudar.
+- **`GET /secoes/:id/metacognicao` devolve o histórico do aluno na seção**,
+  não um recurso único. Lista vazia é o "formulário vazio" do passo 1 do
+  Cenário 4 — o front decide como renderizar.
+- **Sem tentativa encerrada na seção, a média é 0.** Confiança alta nunca
+  sinaliza ilusão nesse caso, porque não há desempenho para contrastar.
+
 ---
 
 ## Fase 10 — Instrumentação de validação
@@ -594,6 +608,47 @@ entrada e saída completas. `npm run validacao:calcular-kappa` roda contra
 pontuações de teste. `revelar.ts` recusa executar sem consenso registrado.
 `GET /admin/metricas/ultimas-chamadas` retorna as últimas chamadas em ordem
 decrescente de `criadoEm`, respeitando `limite`.
+
+**Desvios e decisões registradas na implementação**
+
+- **`LlmService` ganhou `completarParaValidacao` e `modelo?`/`jsonMode`.** A
+  bateria precisa rodar com `VALIDACAO_MODELO` fixo (não o modelo por papel do
+  produto) e, para as tarefas de pergunta, com o prompt `dialogue` fora do
+  modo JSON (ele é texto livre, pensado para stream). `OpcoesCompletar` ganhou
+  `modelo?` para a mesma sobreposição no `completar()`/`transmitir()` normais.
+  O retry (uma tentativa a mais em falha) é responsabilidade do script
+  (`gerar-bateria.ts`), não do `LlmService` — ele faz só a chamada e grava o
+  `LlmCall`, sempre.
+- **`Saida` ganhou o campo `sucesso`**, que `VALIDATION.md` não listava. Sem
+  ele não dava para distinguir, mais tarde, uma saída que falhou após a
+  retentativa de uma saída válida — e a aceite exige registrar o erro sem
+  abortar a execução, não esconder a falha misturada com sucessos.
+- **Convenção para o campo único `enunciado` de `Tarefa`.** Para `resumo`, é a
+  instrução da baseline (o texto da seção vem de `Section.textoCompleto`).
+  Para `ficha`, é o próprio trecho selecionado (não há campo dedicado).
+  Para `pergunta_*`, é a pergunta. Para `questoes`, é só a instrução da
+  baseline.
+- **Remoção de markdown fica em `exportar-planilha.ts`, não em `cegar.ts`.**
+  `CodigoCego` (VALIDATION.md §3) não guarda texto — só `saidaId`, `codigo` e
+  `revelado`. Quem precisa do texto limpo é a exportação, no momento da
+  leitura de `Saida.saidaBruta`.
+- **`VALIDACAO_GIT_SHA` não é uma variável de ambiente lida do `.env`.**
+  `gerar-bateria.ts` roda `git rev-parse HEAD` e grava o SHA direto no
+  `Execucao`, como o próprio `VALIDATION.md` já indica ("preenchido pelo
+  script, não à mão").
+- **Planilhas em `exceljs`, não na lib `xlsx` (SheetJS).** A `xlsx` publicada
+  no npm tem duas vulnerabilidades altas conhecidas sem correção (prototype
+  pollution e ReDoS). Como o uso aqui é só sobre arquivos próprios, o risco
+  era baixo de qualquer forma, mas `exceljs` cobre leitura/escrita igual e não
+  tem esse problema.
+- **Validado mecanicamente, não com a bateria real de 60 saídas.** Rodei os
+  oito scripts, em sequência, contra o OpenRouter de verdade, com 6 tarefas
+  (uma de cada tipo, nas duas seções do fixture) em vez de 15 × 2 — o
+  suficiente para provar que cada etapa funciona, mas a bateria completa
+  exige o YAML de gabarito com as 15 tarefas por seção escritas à mão (duas
+  seções reais, não o fixture), que é trabalho de conteúdo, não de código.
+  Os artefatos desse smoke test (saídas, planilhas, resultados) foram
+  apagados depois — não ficam no repositório nem no banco.
 
 ---
 

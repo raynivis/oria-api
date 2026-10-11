@@ -11,6 +11,8 @@ import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { PanoramaModule } from './panorama/panorama.module';
 import { DialogueModule } from './dialogue/dialogue.module';
+import { MetacognicaoModule } from './metacognicao/metacognicao.module';
+import { ValidacaoModule } from './validacao/validacao.module';
 import { QuestoesModule } from './questoes/questoes.module';
 import { QueueModule } from './queue/queue.module';
 import { RetrievalModule } from './retrieval/retrieval.module';
@@ -34,6 +36,8 @@ import { UsersModule } from './users/users.module';
     TelemetryModule,
     QuestoesModule,
     DialogueModule,
+    MetacognicaoModule,
+    ValidacaoModule,
   ],
   providers: [
     {
