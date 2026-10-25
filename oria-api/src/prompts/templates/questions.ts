@@ -10,7 +10,11 @@ export const schemaQuestoes = z.object({
       z.object({
         enunciado: z.string(),
         respostaReferencia: z.string(),
-        conceitoIds: z.array(z.string().uuid()).min(1),
+        // Não exige formato de UUID aqui: alguns modelos truncam o id pro
+        // primeiro segmento (ex.: "f7d70af8" em vez do UUID completo). A
+        // resolução por prefixo fica em QuestoesService.gerarConjunto, que
+        // tem a lista real de conceitos para comparar.
+        conceitoIds: z.array(z.string().min(1)).min(1),
         trechosFonte: z.array(z.string()),
       }),
     )

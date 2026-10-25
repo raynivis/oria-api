@@ -34,6 +34,9 @@ export const envSchema = z.object({
 
   ADMIN_API_KEY: z.string().min(1),
 
+  /** Uma ou mais origens, separadas por vírgula (ex.: do frontend em dev). */
+  CORS_ORIGIN: z.string().min(1).default('http://localhost:3001'),
+
   ATTEMPT_MAX_STEPS: numeroDeString(
     'ATTEMPT_MAX_STEPS deve ser numérico',
   ).default(3),

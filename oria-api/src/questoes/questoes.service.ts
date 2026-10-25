@@ -15,6 +15,7 @@ import {
   schemaQuestoes,
 } from '../prompts/templates/questions';
 import { ConceitosService } from './conceitos.service';
+import { ConceitoSaidaDto } from './dto/conceitos-saida.dto';
 import { ConjuntoSaidaDto } from './dto/conjunto-saida.dto';
 import { Conceito } from './entities/conceito.entity';
 import { QuestionSet } from './entities/question-set.entity';
@@ -87,11 +88,10 @@ export class QuestoesService {
       schemaQuestoes,
     );
 
-    const idsSelecionados = new Set(conceitosSelecionados.map((c) => c.id));
     const validas = saida.questoes
       .map((questao) => ({
         ...questao,
-        conceitoIds: questao.conceitoIds.filter((id) => idsSelecionados.has(id)),
+        conceitoIds: this.resolverConceitoIds(questao.conceitoIds, conceitosSelecionados),
       }))
       .filter((questao) => questao.conceitoIds.length > 0);
 
@@ -158,6 +158,35 @@ export class QuestoesService {
       criadoEm: conjunto.criadoEm,
       questoes,
     };
+  }
+
+  /**
+   * Resolve os ids de conceito que o modelo devolveu contra os conceitos reais
+   * da seção. Casamento exato primeiro; se não bater, tenta por prefixo — foi
+   * visto na prática um modelo truncar o UUID pro primeiro segmento (ex.:
+   * "f7d70af8" em vez do UUID completo). Id que não resolve de nenhuma forma
+   * é descartado, não inventado.
+   */
+  private resolverConceitoIds(
+    idsRetornados: string[],
+    conceitosDaSecao: ConceitoSaidaDto[],
+  ): string[] {
+    const porIdExato = new Map(conceitosDaSecao.map((c) => [c.id, c.id]));
+    const resolvidos = new Set<string>();
+
+    for (const idRetornado of idsRetornados) {
+      const exato = porIdExato.get(idRetornado);
+      if (exato) {
+        resolvidos.add(exato);
+        continue;
+      }
+      const porPrefixo = conceitosDaSecao.find((c) => c.id.startsWith(idRetornado));
+      if (porPrefixo) {
+        resolvidos.add(porPrefixo.id);
+      }
+    }
+
+    return [...resolvidos];
   }
 
   /** Só vincula trecho a chunk se o texto do trecho estiver de fato num chunk da seção. */

@@ -229,6 +229,11 @@ export class EpubParserService {
       const $ = await obterDocumento(caminhoArquivo);
       const alvo = fragmento ? $(`#${fragmento}`) : $('body');
 
+      const idsDasFilhas = nos
+        .filter((candidata) => candidata.parentId === no.id)
+        .map((filha) => filha.href.split('#')[1])
+        .filter((id): id is string => Boolean(id));
+
       secoes.push({
         id: no.id,
         parentId: no.parentId,
@@ -236,7 +241,7 @@ export class EpubParserService {
         titulo: no.titulo,
         nivel: no.nivel,
         href: no.href,
-        textoCompleto: this.extrairTextoProprio($, alvo),
+        textoCompleto: this.extrairTextoProprio($, alvo, idsDasFilhas),
       });
     }
 
@@ -244,16 +249,22 @@ export class EpubParserService {
   }
 
   /**
-   * Extrai o texto do elemento, preservando parágrafos, mas excluindo
-   * qualquer `<section>` aninhada (que pertence a uma subseção filha, não a
-   * esta).
+   * Extrai o texto do elemento, preservando parágrafos, mas excluindo o que
+   * pertence às subseções filhas (achadas pelo próprio id do fragmento delas
+   * na árvore de navegação, nunca por nome de tag). Remover todo `<section>`
+   * indiscriminadamente quebra em editoras que embrulham o capítulo inteiro
+   * num único `<section>` sem subseção nenhuma (ex.: EPUBs da SciELO Books) —
+   * nesse caso não há id de filha pra remover, e o wrapper fica intacto.
    */
   private extrairTextoProprio(
     $: ReturnType<typeof cheerio.load>,
     alvo: ReturnType<typeof $>,
+    idsDasFilhas: string[],
   ): string {
     const clone = alvo.clone();
-    clone.find('section').remove();
+    for (const id of idsDasFilhas) {
+      clone.find(`#${id}`).remove();
+    }
 
     const paragrafos = clone
       .find('p')

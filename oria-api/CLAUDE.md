@@ -100,6 +100,37 @@ npm run seed                  # popula acervo de desenvolvimento
   `onModuleInit` valida no boot e derruba a aplicação se divergir.
 - **Chunk não atravessa seção.** Chunk que cruza fronteira de capítulo produz
   citação incoerente.
+- **`extrairTextoProprio` não pode remover `<section>` por nome de tag.**
+  Editoras reais (ex.: EPUBs da SciELO Books) embrulham o capítulo inteiro
+  num único `<section>` que não tem subseção nenhuma — remover todo
+  `<section>` indiscriminadamente apaga o próprio conteúdo do capítulo, não só
+  o de filhas. O fixture de teste nunca pegou esse caso porque lá só as
+  subseções (não o capítulo-pai) usam `<section>`. A correção: remover apenas
+  os ids de fragmento que correspondem a filhas reais na árvore de navegação
+  (`idsDasFilhas` em `EpubParserService.preencherTextos`), nunca por nome de
+  tag. Isso só apareceu ao ingerir o primeiro livro real do projeto — toda
+  ingestão anterior tinha `textoCompleto` vazio sem erro nenhum, porque o bug
+  não lança excessão, só devolve string vazia.
+- **Ingestão de livro real precisa de `lockDuration` maior no BullMQ.** O
+  fixture de teste é curto o bastante pra terminar bem dentro dos 30s padrão
+  do BullMQ. Um livro real encadeia uma chamada ao serviço de embeddings por
+  lote de trechos, seção após seção — minutos de processamento no total.
+  `IngestionProcessor` usa `@Processor(FILA_INGESTAO, { lockDuration: 10 * 60 * 1000 })`.
+  Sem isso, o job processa e grava tudo certo, mas o BullMQ marca o lock como
+  expirado no meio do caminho e o endpoint `/admin/jobs/:jobId` nunca reporta
+  `completed` (fica preso em `active`, com "Missing lock" no log) — os dados
+  ficam corretos no banco, mas quem espera o job pelo endpoint trava.
+- **Modelos pequenos truncam UUID.** No papel `questions`, o prompt pede pra
+  ecoar o id do conceito (um UUID) em `conceitoIds`. Já foi visto, com um
+  modelo `:free` pequeno, o modelo devolver só o primeiro segmento (ex.:
+  `"f7d70af8"` em vez do UUID completo) — não é aleatório, é um padrão de
+  truncamento consistente para tokens longos e opacos. `schemaQuestoes` não
+  exige mais formato UUID (só string não vazia); `QuestoesService.
+  resolverConceitoIds` casa primeiro por id exato, depois por prefixo contra
+  os conceitos reais da seção, e descarta silenciosamente o que não resolve
+  de nenhuma forma. Se outro papel algum dia tiver que ecoar um id de volta,
+  esse é o padrão a repetir — não endurecer o schema esperando que o modelo
+  seja preciso.
 - **SSE com JWT.** `EventSource` não aceita header. O cliente consome o stream
   com `fetch` + `ReadableStream`. O endpoint de mensagens é `POST`, e o `@Sse()`
   do Nest só aceita GET, então o stream é escrito à mão com `text/event-stream`
@@ -138,10 +169,26 @@ npm run seed                  # popula acervo de desenvolvimento
   exemplos. `LlmService` grava toda tentativa em `LlmCall` mesmo quando falha
   (inclusive 404/429), então essas falhas não se perdem — mas também não
   tentam adivinhar outro modelo sozinhas.
-- **`npm run start:dev` e `npm run test:e2e` não podem rodar juntos.** Os dois
-  consomem a mesma fila BullMQ no mesmo Redis, e o worker do dev server pega os
-  jobs de ingestão dos testes e falha contra o banco de desenvolvimento. Pare o
-  dev server antes de rodar o e2e.
+- **`npm run start:dev` e `npm run test:e2e` não podem rodar juntos — e
+  "parar o dev server" não é só matar o processo do `npm`.** Os dois
+  consomem a mesma fila BullMQ no mesmo Redis; o worker do dev server pega os
+  jobs de ingestão dos testes e o e2e falha ("failed" ou preso em "pendente").
+  O pulo do gato: `nest start --watch` não roda a aplicação no mesmo processo
+  do Nest CLI — ele sobe uma árvore `npm → nest.js → cmd.exe → node dist/main`,
+  e é esse último `node dist/main`, filho do `cmd.exe`, quem de fato escuta a
+  porta e consome a fila. Matar só o `npm`/`nest.js` (os processos "visíveis"
+  por nome de script) deixa esse filho vivo, invisível por nome de comando, e
+  o sintoma volta mesmo depois de "parar" o servidor. No PowerShell, sempre
+  mate a árvore inteira de uma vez:
+  ```powershell
+  Get-CimInstance Win32_Process -Filter "Name='node.exe' OR Name='cmd.exe'" |
+    Where-Object { $_.CommandLine -match 'start:dev|nest\.js. start|dist\\main|oria-api' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  ```
+  Depois de qualquer "parada", confirme com
+  `Get-CimInstance Win32_Process -Filter "Name='node.exe'"` que não sobrou
+  nada antes de rodar o e2e ou subir um servidor novo — isso já se repetiu
+  várias vezes numa única sessão por confiar só no filtro estreito.
 - **Exportação de fichamentos em PDF não está implementada.** `IMPLEMENTATION.md`
   (Fase 5) previa markdown ou PDF em `GET /me/fichamentos/exportar`. Nenhum
   cenário de `SCENARIOS.md` exercita o PDF — só o markdown (Cenário 2, passo

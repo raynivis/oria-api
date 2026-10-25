@@ -22,7 +22,14 @@ const TAMANHO_LOTE_EMBEDDINGS = 32;
  */
 const TAMANHO_MINIMO_PARA_CHUNK = 40;
 
-@Processor(FILA_INGESTAO)
+/**
+ * `lockDuration` generoso: um livro real (não o fixture, quase vazio) encadeia
+ * muitas chamadas sequenciais ao serviço de embeddings, uma por lote de
+ * trechos, seção após seção. Com o padrão do BullMQ (30s) o lock expira antes
+ * do job terminar e ele é marcado como "stalled" no meio do processamento,
+ * mesmo sem erro nenhum no código — só demora mais que isso.
+ */
+@Processor(FILA_INGESTAO, { lockDuration: 10 * 60 * 1000 })
 export class IngestionProcessor extends WorkerHost {
   private readonly logger = new Logger(IngestionProcessor.name);
 

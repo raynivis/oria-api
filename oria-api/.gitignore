@@ -51,6 +51,7 @@ lerna-debug.log*
 
 # acervo de desenvolvimento (livros reais, não versionados)
 /acervo
+/epub
 
 # Runtime data
 pids

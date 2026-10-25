@@ -1,8 +1,18 @@
+import * as cheerio from 'cheerio';
 import * as path from 'node:path';
 import { EpubParserService } from './epub-parser.service';
 
+type ServicoComPrivados = {
+  extrairTextoProprio(
+    $: ReturnType<typeof cheerio.load>,
+    alvo: ReturnType<ReturnType<typeof cheerio.load>>,
+    idsDasFilhas: string[],
+  ): string;
+};
+
 describe('EpubParserService', () => {
   const service = new EpubParserService();
+  const servicoPrivado = service as unknown as ServicoComPrivados;
   const caminhoFixture = path.join(
     __dirname,
     '../../test/fixtures/livro-teste.epub',
@@ -35,5 +45,37 @@ describe('EpubParserService', () => {
 
     const ordens = livro.secoes.map((s) => s.ordem);
     expect(new Set(ordens).size).toBe(ordens.length);
+  });
+
+  describe('extrairTextoProprio', () => {
+    it('não apaga o texto quando o capítulo inteiro vem embrulhado num único <section> sem subseções', () => {
+      // Padrão real de EPUBs da SciELO Books: todo o corpo do capítulo é um
+      // único <section>, sem nenhuma subseção endereçável por fragmento.
+      // Remover qualquer <section> indiscriminadamente apagaria o capítulo
+      // inteiro — foi exatamente o bug encontrado ao ingerir um livro real.
+      const $ = cheerio.load(
+        '<html><body><section class="chapter"><h1>Nota preliminar</h1><p>Texto real do parágrafo.</p></section></body></html>',
+        { xmlMode: true },
+      );
+
+      const texto = servicoPrivado.extrairTextoProprio($, $('body'), []);
+
+      expect(texto).toContain('Texto real do parágrafo.');
+    });
+
+    it('remove o texto das subseções filhas pelo id do fragmento, preservando o texto próprio do pai', () => {
+      const $ = cheerio.load(
+        '<html><body><h1>Capítulo 1</h1><p>Introdução do capítulo.</p>' +
+          '<section id="sub1"><p>Texto da subseção 1.</p></section>' +
+          '<section id="sub2"><p>Texto da subseção 2.</p></section></body></html>',
+        { xmlMode: true },
+      );
+
+      const texto = servicoPrivado.extrairTextoProprio($, $('body'), ['sub1', 'sub2']);
+
+      expect(texto).toContain('Introdução do capítulo.');
+      expect(texto).not.toContain('subseção 1');
+      expect(texto).not.toContain('subseção 2');
+    });
   });
 });
