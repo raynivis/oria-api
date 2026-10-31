@@ -119,18 +119,25 @@ O passo 7 demonstra a persistência. Saia de fato, não apenas recarregue a pág
 
 ---
 
-## Cenário 3 — Autoavaliar-se
+## Cenário 3 — Autoavaliar-se e fechar a seção
 
 **Situação.** O aluno testa o que entendeu e descobre que precisava de mais apoio
-do que imaginava.
+do que imaginava. Terminado o estudo, registra o que acha que aprendeu e
+confronta sua percepção com o próprio desempenho.
 
-**Módulos exercitados.** Geração de questões, fluxo step-based, conceitos.
+**Módulos exercitados.** Geração de questões, fluxo step-based, conceitos,
+metacognição, detecção de ilusão de conhecimento, reporte de erro.
 
 > **Reescrito em relação à versão original.** O roteiro anterior previa "errar uma
 > de propósito, ler o feedback". No fluxo step-based, errar não produz feedback:
 > produz pedido de justificativa, depois dica conceitual, depois dica localizada.
 > O cenário original demonstraria um sistema *answer-based*, que é exatamente o
 > que a seção 2.2 do TCC rejeita. Ver a seção "Divergências" ao final.
+
+> **Fechamento incorporado a este cenário, não um Cenário 4 separado.** Decisão
+> confirmada em 2026-10-31: o front já implementou assim, com um link "Fechar
+> esta seção →" na tela de questões levando direto à metacognição. Ver
+> "Divergências".
 
 | Passo | Ação | Endpoint | Esperado | RF |
 |---|---|---|---|---|
@@ -146,6 +153,15 @@ do que imaginava.
 | 10 | Ver os conceitos da seção | `GET /secoes/:id/conceitos` | Conceitos extraídos na ingestão | RF19 |
 | 11 | Ver a própria classificação | `GET /me/conceitos` | Conceito da questão 1 em dominados, o da 2 em a revisar | RF20 |
 | 12 | Gerar nova rodada sobre os conceitos a revisar | `POST /secoes/:id/questoes` | Questões concentradas nos conceitos pendentes | RF15, RF20 |
+| 13 | Clicar em "Fechar esta seção →" | — (front) | Leitor sai da tela de questões e abre a de metacognição | — |
+| 14 | Abrir a tela de metacognição da seção | `GET /secoes/:id/metacognicao` | Formulário vazio, com as duas perguntas abertas | RF21 |
+| 15 | Escrever o que acredita ter aprendido | — (front) | Campo aceita texto livre | RF21 |
+| 16 | Escrever o que ainda gera dúvida | — (front) | Campo aceita texto livre | RF21 |
+| 17 | Declarar confiança alta, acima de 70 | `POST /secoes/:id/metacognicao` | Registro gravado | RF21, RF24 |
+| 18 | Ler a observação do sistema | idem, na resposta | Confronto entre a confiança declarada e os passos consumidos nos passos 2 a 9 deste cenário | RF22 |
+| 19 | Ver conceitos a revisar | `GET /me/conceitos` | Lista coerente com o desempenho deste cenário | RF20 |
+| 20 | Clicar em um conceito a revisar | — (front) | Leitor abre a seção onde o conceito é introduzido | RF20 |
+| 21 | Reportar um problema em conteúdo gerado | `POST /reportes` | Reporte registrado, com confirmação | RF23 |
 
 Os passos 2 e 4 são os mais importantes do cenário inteiro. A captura precisa
 deixar claro que **a mesma tela aparece para resposta certa e errada**: nenhuma
@@ -154,35 +170,12 @@ visual do step-based.
 
 O passo 7 merece captura própria, mostrando a ausência do botão.
 
----
+O passo 18 é a operacionalização da compreensão ilusória de Flavell (1979). Para
+que a observação apareça, os passos 2 a 9 deste mesmo cenário precisam ter
+consumido passos de step-based suficientes antes de chegar ao fechamento — não
+pule direto da geração de questões (passo 1) para o passo 13.
 
-## Cenário 4 — Fechar a seção
-
-**Situação.** Terminado o estudo, o aluno registra o que acha que aprendeu e
-confronta sua percepção com o próprio desempenho.
-
-**Módulos exercitados.** Metacognição, detecção de ilusão de conhecimento,
-reporte de erro.
-
-> **Cenário novo.** Sem ele, panorama, metacognição e conceitos ficariam como
-> requisitos não demonstrados na tabela de rastreabilidade. Ver "Divergências".
-
-| Passo | Ação | Endpoint | Esperado | RF |
-|---|---|---|---|---|
-| 1 | Abrir a tela de metacognição da seção | `GET /secoes/:id/metacognicao` | Formulário vazio, com as duas perguntas abertas | RF21 |
-| 2 | Escrever o que acredita ter aprendido | — (front) | Campo aceita texto livre | RF21 |
-| 3 | Escrever o que ainda gera dúvida | — (front) | Campo aceita texto livre | RF21 |
-| 4 | Declarar confiança alta, acima de 70 | `POST /secoes/:id/metacognicao` | Registro gravado | RF21, RF24 |
-| 5 | Ler a observação do sistema | idem, na resposta | Confronto entre confiança e passos consumidos no Cenário 3 | RF22 |
-| 6 | Ver conceitos a revisar | `GET /me/conceitos` | Lista coerente com o desempenho do Cenário 3 | RF20 |
-| 7 | Clicar em um conceito a revisar | — (front) | Leitor abre a seção onde o conceito é introduzido | RF20 |
-| 8 | Reportar um problema em conteúdo gerado | `POST /reportes` | Reporte registrado, com confirmação | RF23 |
-
-O passo 5 é a operacionalização da compreensão ilusória de Flavell (1979). Para
-que a observação apareça, o Cenário 3 precisa ter consumido passos suficientes —
-execute os quatro cenários na ordem, na mesma conta.
-
-Se a confiança declarada for baixa, o sistema não sinaliza, e o passo 5 não
+Se a confiança declarada for baixa, o sistema não sinaliza, e o passo 18 não
 demonstra nada. Declare confiança alta de propósito.
 
 ---
@@ -220,7 +213,7 @@ Requisito sem passo correspondente aparece como **não demonstrado**.
 | RF02 | C1/2 | Demonstrado |
 | ... | | |
 
-Com os quatro cenários acima, os 24 requisitos ficam cobertos. Se algum for
+Com os três cenários acima, os 24 requisitos ficam cobertos. Se algum for
 cortado do escopo durante a implementação, remova-o da lista de RF em vez de
 deixá-lo como não demonstrado — requisito que não existe não precisa de
 demonstração, mas requisito planejado e não demonstrado chama atenção na banca.
@@ -239,8 +232,9 @@ demonstração, mas requisito planejado e não demonstrado chama atenção na ba
 5. **Quando o obtido divergir do esperado**, registre a divergência em vez de
    repetir até dar certo. Divergência documentada é resultado; divergência
    escondida é problema.
-6. **Os quatro cenários na ordem**, na mesma conta. O Cenário 4 depende do
-   estado deixado pelo 3.
+6. **Os três cenários na ordem**, na mesma conta. O fechamento, ao final do
+   Cenário 3, depende dos passos de step-based já consumidos no próprio
+   cenário.
 
 ---
 
@@ -260,9 +254,13 @@ veredito antes da hora.
 desempenho: ele classifica conceitos em dominados e a revisar. O passo 12 do
 Cenário 3 usa essa classificação, que é personalização real e já planejada.
 
-**3. Cenário 4 acrescentado.** Sem ele, panorama, metacognição e conceitos
-ficariam como não demonstrados. O panorama entrou também no passo 4 do Cenário 1,
-onde é natural.
+**3. Fechamento incorporado ao Cenário 3, não um Cenário 4 separado.** Sem ele,
+panorama, metacognição e conceitos ficariam como não demonstrados. O panorama
+entrou no passo 4 do Cenário 1. Metacognição e conceitos entraram como
+continuação do Cenário 3 (passos 13 a 21): ao final do fluxo de questões, o
+front oferece um link "Fechar esta seção →" para a tela de metacognição, em vez
+de abrir um cenário à parte. Decisão confirmada com o orientador em
+2026-10-31 — o front já está implementado assim.
 
 **4. "Resumo" e "ficha" precisam de distinção no backend.** A Avaliação A trata
 "resumo da seção" e "fichas a partir de trechos escolhidos" como tarefas

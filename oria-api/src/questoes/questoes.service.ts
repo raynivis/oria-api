@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { Chunk } from '../catalog/entities/chunk.entity';
 import { Section } from '../catalog/entities/section.entity';
 import { LlmService } from '../llm/llm.service';
@@ -16,7 +16,9 @@ import {
 } from '../prompts/templates/questions';
 import { ConceitosService } from './conceitos.service';
 import { ConceitoSaidaDto } from './dto/conceitos-saida.dto';
+import { ConjuntoResumoDto } from './dto/conjunto-resumo.dto';
 import { ConjuntoSaidaDto } from './dto/conjunto-saida.dto';
+import { Attempt } from './entities/attempt.entity';
 import { Conceito } from './entities/conceito.entity';
 import { QuestionSet } from './entities/question-set.entity';
 import { Question } from './entities/question.entity';
@@ -36,6 +38,8 @@ export class QuestoesService {
     private readonly chunksRepository: Repository<Chunk>,
     @InjectRepository(QuestionSet)
     private readonly conjuntosRepository: Repository<QuestionSet>,
+    @InjectRepository(Attempt)
+    private readonly attemptsRepository: Repository<Attempt>,
   ) {}
 
   /**
@@ -187,6 +191,73 @@ export class QuestoesService {
     }
 
     return [...resolvidos];
+  }
+
+  /**
+   * Para a tela "minhas questões": todos os conjuntos do aluno, com o estado
+   * de cada questão sem precisar de N chamadas extras. `pendente` é só pra
+   * questão sem tentativa nenhuma; o resto reaproveita `EstadoTentativa` —
+   * quando há mais de uma tentativa na mesma questão (o aluno tentou de novo
+   * depois de abandonar, por exemplo), mostra a mais recente, pelo mesmo
+   * critério de "versão atual" que `FichamentosService` usa.
+   */
+  async listarMeusConjuntos(userId: string, livroId?: string): Promise<ConjuntoResumoDto[]> {
+    const conjuntos = await this.conjuntosRepository.find({
+      where: { userId },
+      relations: ['questoes'],
+      order: { criadoEm: 'DESC' },
+    });
+    if (conjuntos.length === 0) {
+      return [];
+    }
+
+    const secoes = await this.sectionsRepository.find({
+      where: { id: In([...new Set(conjuntos.map((c) => c.sectionId))]) },
+      relations: ['livro'],
+    });
+    const secaoPorId = new Map(secoes.map((s) => [s.id, s]));
+
+    const filtrados = livroId
+      ? conjuntos.filter((c) => secaoPorId.get(c.sectionId)?.bookId === livroId)
+      : conjuntos;
+
+    const questionIds = filtrados.flatMap((c) => (c.questoes ?? []).map((q) => q.id));
+    const tentativas = questionIds.length
+      ? await this.attemptsRepository.find({
+          where: { userId, questionId: In(questionIds) },
+          order: { criadaEm: 'DESC' },
+        })
+      : [];
+    const tentativaMaisRecentePorQuestao = new Map<string, Attempt>();
+    for (const tentativa of tentativas) {
+      if (!tentativaMaisRecentePorQuestao.has(tentativa.questionId)) {
+        tentativaMaisRecentePorQuestao.set(tentativa.questionId, tentativa);
+      }
+    }
+
+    return filtrados.map((conjunto) => {
+      const secao = secaoPorId.get(conjunto.sectionId)!;
+      return {
+        id: conjunto.id,
+        sectionId: conjunto.sectionId,
+        tituloSecao: secao.titulo,
+        livroId: secao.bookId,
+        tituloLivro: secao.livro.titulo,
+        criadoEm: conjunto.criadoEm,
+        questoes: (conjunto.questoes ?? [])
+          .slice()
+          .sort((a, b) => a.ordem - b.ordem)
+          .map((questao) => {
+            const tentativa = tentativaMaisRecentePorQuestao.get(questao.id);
+            return {
+              id: questao.id,
+              enunciado: questao.enunciado,
+              tentativaId: tentativa?.id ?? null,
+              estado: tentativa?.estado ?? ('pendente' as const),
+            };
+          }),
+      };
+    });
   }
 
   /** Só vincula trecho a chunk se o texto do trecho estiver de fato num chunk da seção. */

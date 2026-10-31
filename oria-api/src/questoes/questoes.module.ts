@@ -10,7 +10,11 @@ import { QuestionSet } from './entities/question-set.entity';
 import { Question } from './entities/question.entity';
 import { Attempt } from './entities/attempt.entity';
 import { AttemptStep } from './entities/attempt-step.entity';
-import { ConjuntosController, GerarQuestoesController } from './questoes.controller';
+import {
+  ConjuntosController,
+  GerarQuestoesController,
+  MeConjuntosController,
+} from './questoes.controller';
 import { QuestoesService } from './questoes.service';
 import { IniciarTentativaController, TentativasController } from './tentativas.controller';
 import { TentativasService } from './tentativas.service';
@@ -33,6 +37,7 @@ import { TentativasService } from './tentativas.service';
     MeConceitosController,
     GerarQuestoesController,
     ConjuntosController,
+    MeConjuntosController,
     IniciarTentativaController,
     TentativasController,
   ],

@@ -92,6 +92,7 @@ describe('Fase 7 — questões e fluxo step-based (e2e)', () => {
   let tokenAluno: string;
   let tokenOutroAluno: string;
   let secaoId: string;
+  let livroId: string;
 
   const http = () => request(app.getHttpServer());
   const autenticado = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -126,6 +127,7 @@ describe('Fase 7 — questões e fluxo step-based (e2e)', () => {
         'Este é um texto de seção suficientemente longo para que a extração de conceitos seja chamada pelo serviço, com conteúdo sobre substituição de perguntas e ligação com o capítulo anterior.',
     });
     secaoId = secao.id;
+    livroId = livro.id;
 
     const registro = await http()
       .post('/api/v1/auth/registro')
@@ -148,6 +150,7 @@ describe('Fase 7 — questões e fluxo step-based (e2e)', () => {
   let questaoA: string;
   let questaoB: string;
   let tentativaA: string;
+  let tentativaAFallback: string;
   let tentativaBAberta: string;
   let tentativaBDesistida: string;
 
@@ -336,6 +339,7 @@ describe('Fase 7 — questões e fluxo step-based (e2e)', () => {
       .set(autenticado(tokenAluno))
       .send({ resposta: 'quarta resposta' })
       .expect(201);
+    tentativaAFallback = inicio.body.id;
 
     llmFalso.falharHintIntermediario = true;
     try {
@@ -361,5 +365,59 @@ describe('Fase 7 — questões e fluxo step-based (e2e)', () => {
       .set(autenticado(tokenAluno))
       .expect(200);
     expect(resposta.body.questoes.map((q: { ordem: number }) => q.ordem)).toEqual([0, 1]);
+  });
+
+  it('/me/conjuntos: cada questão mostra a tentativa mais recente, não a primeira', async () => {
+    const resposta = await http()
+      .get('/api/v1/me/conjuntos')
+      .set(autenticado(tokenAluno))
+      .expect(200);
+
+    const conjunto = resposta.body.find((c: { id: string }) => c.id === conjuntoId);
+    expect(conjunto).toBeDefined();
+    expect(conjunto.livroId).toBe(livroId);
+    expect(conjunto.tituloLivro).toBe('Livro de questões e2e');
+
+    const porId = (id: string) => conjunto.questoes.find((q: { id: string }) => q.id === id);
+
+    // questaoA tem duas tentativas: tentativaA (resolvida, mais antiga) e
+    // tentativaAFallback (em_passos, mais recente) — mostra a mais recente.
+    expect(porId(questaoA)).toEqual({
+      id: questaoA,
+      enunciado: 'Pergunta A',
+      tentativaId: tentativaAFallback,
+      estado: 'em_passos',
+    });
+
+    // questaoB também tem duas: tentativaBAberta (resolvida, mais antiga) e
+    // tentativaBDesistida (abandonada, mais recente).
+    expect(porId(questaoB)).toEqual({
+      id: questaoB,
+      enunciado: 'Pergunta B',
+      tentativaId: tentativaBDesistida,
+      estado: 'abandonada',
+    });
+
+    SEM_VEREDITO(resposta.body);
+  });
+
+  it('/me/conjuntos?livroId= filtra pelo livro certo e isola por aluno', async () => {
+    const doLivroCerto = await http()
+      .get(`/api/v1/me/conjuntos?livroId=${livroId}`)
+      .set(autenticado(tokenAluno))
+      .expect(200);
+    expect(doLivroCerto.body.map((c: { id: string }) => c.id)).toContain(conjuntoId);
+
+    const deOutroLivro = await http()
+      .get(`/api/v1/me/conjuntos?livroId=${randomUUID()}`)
+      .set(autenticado(tokenAluno))
+      .expect(200);
+    expect(deOutroLivro.body).toEqual([]);
+
+    const deOutroAluno = await http()
+      .get('/api/v1/me/conjuntos')
+      .set(autenticado(tokenOutroAluno))
+      .expect(200);
+    expect(deOutroAluno.body).toEqual([]);
   });
 });

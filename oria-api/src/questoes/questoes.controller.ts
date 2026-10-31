@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { UsuarioAtual } from '../auth/decorators/usuario-atual.decorator';
 import type { UsuarioAutenticado } from '../auth/jwt-payload.interface';
+import { ConjuntoResumoDto } from './dto/conjunto-resumo.dto';
 import { ConjuntoSaidaDto } from './dto/conjunto-saida.dto';
 import { GerarQuestoesDto } from './dto/gerar-questoes.dto';
 import { QuestoesService } from './questoes.service';
@@ -29,5 +30,18 @@ export class ConjuntosController {
     @UsuarioAtual() usuarioAtual: UsuarioAutenticado,
   ): Promise<ConjuntoSaidaDto> {
     return this.questoesService.obterConjunto(usuarioAtual.id, id);
+  }
+}
+
+@Controller('me/conjuntos')
+export class MeConjuntosController {
+  constructor(private readonly questoesService: QuestoesService) {}
+
+  @Get()
+  listar(
+    @UsuarioAtual() usuarioAtual: UsuarioAutenticado,
+    @Query('livroId') livroId?: string,
+  ): Promise<ConjuntoResumoDto[]> {
+    return this.questoesService.listarMeusConjuntos(usuarioAtual.id, livroId);
   }
 }

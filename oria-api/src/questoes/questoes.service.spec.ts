@@ -8,6 +8,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import { Chunk } from '../catalog/entities/chunk.entity';
 import { Section } from '../catalog/entities/section.entity';
 import { ConceitosService } from './conceitos.service';
+import { Attempt } from './entities/attempt.entity';
 import { QuestionSet } from './entities/question-set.entity';
 import { LlmService } from '../llm/llm.service';
 import { QuestoesService } from './questoes.service';
@@ -43,6 +44,7 @@ describe('QuestoesService.gerarConjunto', () => {
     llmService: Partial<LlmService>;
     manager: EntityManager;
     conjuntoSalvo?: unknown;
+    attemptsRepository?: Partial<Repository<Attempt>>;
   }) {
     const dataSource = {
       transaction: jest.fn((callback: (m: EntityManager) => unknown) => callback(opts.manager)),
@@ -72,6 +74,10 @@ describe('QuestoesService.gerarConjunto', () => {
       ),
     } as unknown as Repository<QuestionSet>;
 
+    const attemptsRepository = (opts.attemptsRepository ?? {
+      find: jest.fn().mockResolvedValue([]),
+    }) as unknown as Repository<Attempt>;
+
     return new QuestoesService(
       dataSource,
       conceitosService,
@@ -80,6 +86,7 @@ describe('QuestoesService.gerarConjunto', () => {
       sectionsRepository,
       chunksRepository,
       conjuntosRepository,
+      attemptsRepository,
     );
   }
 
@@ -183,6 +190,7 @@ describe('QuestoesService.gerarConjunto', () => {
     } as unknown as Repository<Section>;
     const chunksRepository = {} as unknown as Repository<Chunk>;
     const conjuntosRepository = {} as unknown as Repository<QuestionSet>;
+    const attemptsRepository = {} as unknown as Repository<Attempt>;
     const servicoSemSecao = new QuestoesService(
       dataSource,
       conceitosService,
@@ -191,6 +199,7 @@ describe('QuestoesService.gerarConjunto', () => {
       sectionsRepository,
       chunksRepository,
       conjuntosRepository,
+      attemptsRepository,
     );
 
     await expect(servicoSemSecao.gerarConjunto('user-1', 'nao-existe')).rejects.toThrow(
@@ -205,5 +214,129 @@ describe('QuestoesService.gerarConjunto', () => {
     await expect(
       service.gerarConjunto('user-1', SECTION_ID, ['id-de-outra-secao']),
     ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('QuestoesService.listarMeusConjuntos', () => {
+  const LIVRO_1 = 'livro-1';
+  const LIVRO_2 = 'livro-2';
+
+  function montarServicoDeListagem(opts: {
+    conjuntos: unknown[];
+    secoes: unknown[];
+    tentativas: unknown[];
+  }) {
+    const dataSource = {} as unknown as DataSource;
+    const conceitosService = {} as unknown as ConceitosService;
+    const llmService = {} as unknown as LlmService;
+    const configService = {} as unknown as ConfigService;
+    const sectionsRepository = {
+      find: jest.fn().mockResolvedValue(opts.secoes),
+    } as unknown as Repository<Section>;
+    const chunksRepository = {} as unknown as Repository<Chunk>;
+    const conjuntosRepository = {
+      find: jest.fn().mockResolvedValue(opts.conjuntos),
+    } as unknown as Repository<QuestionSet>;
+    const attemptsRepository = {
+      find: jest.fn().mockResolvedValue(opts.tentativas),
+    } as unknown as Repository<Attempt>;
+
+    return new QuestoesService(
+      dataSource,
+      conceitosService,
+      llmService,
+      configService,
+      sectionsRepository,
+      chunksRepository,
+      conjuntosRepository,
+      attemptsRepository,
+    );
+  }
+
+  it('sem nenhum conjunto, devolve lista vazia', async () => {
+    const service = montarServicoDeListagem({ conjuntos: [], secoes: [], tentativas: [] });
+
+    const resultado = await service.listarMeusConjuntos('user-1');
+
+    expect(resultado).toEqual([]);
+  });
+
+  it('questão sem tentativa fica pendente; questão com tentativa reaproveita o estado dela', async () => {
+    const service = montarServicoDeListagem({
+      conjuntos: [
+        {
+          id: 'conjunto-1',
+          sectionId: 'secao-1',
+          criadoEm: new Date('2026-01-01'),
+          questoes: [
+            { id: 'questao-1', ordem: 0, enunciado: 'Pergunta 1' },
+            { id: 'questao-2', ordem: 1, enunciado: 'Pergunta 2' },
+          ],
+        },
+      ],
+      secoes: [
+        { id: 'secao-1', titulo: 'Seção 1', bookId: LIVRO_1, livro: { titulo: 'Livro 1' } },
+      ],
+      tentativas: [
+        { id: 'tentativa-1', questionId: 'questao-2', estado: 'resolvida', criadaEm: new Date('2026-01-02') },
+      ],
+    });
+
+    const [conjunto] = await service.listarMeusConjuntos('user-1');
+
+    expect(conjunto.questoes).toEqual([
+      { id: 'questao-1', enunciado: 'Pergunta 1', tentativaId: null, estado: 'pendente' },
+      { id: 'questao-2', enunciado: 'Pergunta 2', tentativaId: 'tentativa-1', estado: 'resolvida' },
+    ]);
+  });
+
+  it('com mais de uma tentativa na mesma questão, usa a mais recente', async () => {
+    const service = montarServicoDeListagem({
+      conjuntos: [
+        {
+          id: 'conjunto-1',
+          sectionId: 'secao-1',
+          criadoEm: new Date(),
+          questoes: [{ id: 'questao-1', ordem: 0, enunciado: 'Pergunta 1' }],
+        },
+      ],
+      secoes: [
+        { id: 'secao-1', titulo: 'Seção 1', bookId: LIVRO_1, livro: { titulo: 'Livro 1' } },
+      ],
+      // já vem ordenado DESC por criadaEm, como o repositório real devolveria
+      tentativas: [
+        { id: 'tentativa-recente', questionId: 'questao-1', estado: 'em_passos', criadaEm: new Date('2026-02-01') },
+        { id: 'tentativa-antiga', questionId: 'questao-1', estado: 'abandonada', criadaEm: new Date('2026-01-01') },
+      ],
+    });
+
+    const [conjunto] = await service.listarMeusConjuntos('user-1');
+
+    expect(conjunto.questoes[0]).toEqual({
+      id: 'questao-1',
+      enunciado: 'Pergunta 1',
+      tentativaId: 'tentativa-recente',
+      estado: 'em_passos',
+    });
+  });
+
+  it('filtra por livroId, excluindo conjuntos de outros livros', async () => {
+    const service = montarServicoDeListagem({
+      conjuntos: [
+        { id: 'conjunto-1', sectionId: 'secao-1', criadoEm: new Date(), questoes: [] },
+        { id: 'conjunto-2', sectionId: 'secao-2', criadoEm: new Date(), questoes: [] },
+      ],
+      secoes: [
+        { id: 'secao-1', titulo: 'Seção 1', bookId: LIVRO_1, livro: { titulo: 'Livro 1' } },
+        { id: 'secao-2', titulo: 'Seção 2', bookId: LIVRO_2, livro: { titulo: 'Livro 2' } },
+      ],
+      tentativas: [],
+    });
+
+    const resultado = await service.listarMeusConjuntos('user-1', LIVRO_1);
+
+    expect(resultado).toHaveLength(1);
+    expect(resultado[0].id).toBe('conjunto-1');
+    expect(resultado[0].livroId).toBe(LIVRO_1);
   });
 });
