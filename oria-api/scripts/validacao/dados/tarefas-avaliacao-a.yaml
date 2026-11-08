@@ -1,0 +1,362 @@
+# Gabarito da Avaliação A — transcrito de "Gabarito Avaliacao A Oria.pdf".
+#
+# Fonte: CITELLI, Adilson (org.). Educomunicação no contexto pandêmico: desafios
+# do ensino remoto. Ilhéus: Editus, 2024. Capítulo 2 (ordem 4) e Capítulo 8
+# (ordem 10).
+#
+# Este arquivo é o gabarito congelado antes da geração das saídas (VALIDATION.md,
+# §5 "preparar-tarefas.ts" e §9 "Ordem de execução"). Não editar depois da tag
+# avaliacao-a-v1 sem também mudar a tag para v2.
+#
+# 15 tarefas por seção: 6 pergunta_na_secao + 2 pergunta_ligacao + 2 pergunta_fora
+# + 1 resumo + 3 ficha + 1 questoes = 15. Duas seções = 30 tarefas, × 2 condições
+# (oria/baseline) = 60 saídas.
+
+secoes:
+  # ======================================================================
+  # A — Capítulo 2: Infraestrutura tecnológica escolar no ensino remoto
+  # emergencial. Autoras: Gláucia Silva Bierwagen e Roberta Takahashi
+  # Soledade. 3.970 palavras, 17 trechos, 7.043 tokens.
+  # ======================================================================
+  - id: 9cc913b3-d4e5-4bfe-8f3e-8f86c1051c40
+    conceitosCentrais:
+      - "Ensino Remoto Emergencial (ERE)"
+      - "Infraestrutura tecnológica escolar"
+      - "TDIC"
+      - "Nível de maturidade na adoção de tecnologia"
+      - "Velocidade de conexão por aluno"
+      - "Hibridização tecnológica"
+      - "Subimplantação de recursos e transferência de custo"
+    tarefas:
+      # --- A.3 Perguntas respondíveis pela seção (6) ---
+      - codigo: C2-P1
+        tipo: pergunta_na_secao
+        enunciado: "O que foi o Ensino Remoto Emergencial e quando começou?"
+        gabarito: >-
+          Modalidade instituída a partir de março de 2020, com o reconhecimento
+          da pandemia pela OMS. Escolas públicas e privadas passaram a usar
+          tecnologias digitais como recurso principal, adaptando rapidamente
+          para os meios digitais o conteúdo das aulas presenciais.
+
+      - codigo: C2-P2
+        tipo: pergunta_na_secao
+        enunciado: "Quais equipamentos as escolas declararam ter para finalidades didático-pedagógicas?"
+        gabarito: >-
+          Computador em 85,5% das respostas, televisão em 71,2%, celular em
+          58,2%, rádio em 37,8% e gravador em 14,4%, sobre uma base de 447
+          docentes com resposta múltipla.
+
+      - codigo: C2-P3
+        tipo: pergunta_na_secao
+        enunciado: "Como os docentes avaliaram a qualidade da conexão da escola?"
+        gabarito: >-
+          Regular para 39,2%, boa para 37,9%, ruim para 11,5%, péssima para
+          6,4% e excelente para 5%. Somando boa e excelente chega-se a 42,9%,
+          contra 57,1% nas três faixas inferiores, o que indica que quase 60%
+          das escolas conectadas têm conexão aquém do necessário.
+
+      - codigo: C2-P4
+        tipo: pergunta_na_secao
+        enunciado: "Que parâmetros o CIEB define para uma escola de nível avançado?"
+        gabarito: >-
+          Suportar cerca de 60 conexões simultâneas e ter uso diário dos
+          dispositivos. A nota técnica sugere wi-fi por sala, projetor ou TV,
+          tomadas, espaço de armazenamento, um kit de equipamentos a cada seis
+          salas, wi-fi exclusivo e notebook por professor na sala dos docentes,
+          mínimo de 1 Mbps por educando e itens de suporte como roteador,
+          switch, nobreak, servidor, cabeamento, firewall e equipe técnica.
+
+      - codigo: C2-P5
+        tipo: pergunta_na_secao
+        enunciado: "Que recursos a escola ofereceu aos docentes para o ensino remoto?"
+        gabarito: >-
+          Computador ou laptop para 43,6%, pacote de dados para 21,3%, celular
+          para 14,8%, banda larga para 12,1% e tablet para 11%. O dado central
+          é que 41,8% não receberam nenhum recurso.
+
+      - codigo: C2-P6
+        tipo: pergunta_na_secao
+        enunciado: "A que conclusão o capítulo chega sobre a infraestrutura disponível?"
+        gabarito: >-
+          Houve subimplantação de recursos digitais, herdeira da insuficiência
+          histórica das instituições, o que restringiu as estratégias didáticas
+          e afetou tanto a atuação docente quanto o fluxo de aprendizagem. O
+          texto acrescenta que, mesmo no pós-pandemia, as escolas não estão
+          preparadas para usar recursos digitais, o que inviabiliza projetos de
+          educação para as mídias.
+
+      # --- A.4 Perguntas de ligação com seções anteriores (2) ---
+      - codigo: C2-L1
+        tipo: pergunta_ligacao
+        enunciado: >-
+          O Capítulo 1 cita o estudo TIC Educação 2020 do Cetic.br, segundo o
+          qual a falta de dispositivos e o acesso precário à internet
+          dificultaram o ensino remoto para 86% das escolas, e remete aos
+          capítulos seguintes. Que dados desta seção detalham essa dificuldade?
+        gabarito: >-
+          Os quatro levantamentos do MECOM com 447 docentes: a distribuição de
+          equipamentos na escola, a existência de conexão, a qualidade dessa
+          conexão e os recursos fornecidos ao docente. O ponto mais direto é a
+          combinação de 57,1% de conexão regular ou pior com os 41,8% que não
+          receberam nenhum equipamento.
+
+      - codigo: C2-L2
+        tipo: pergunta_ligacao
+        enunciado: >-
+          O Capítulo 1 informa que o trabalho de campo ocorreu entre 4 de
+          novembro de 2021 e 12 de junho de 2022. Os dados de infraestrutura
+          desta seção vêm do mesmo levantamento?
+        gabarito: >-
+          Sim. Esta seção analisa o mesmo levantamento do MECOM, recortando as
+          quatro perguntas sobre equipamentos e conexão. O capítulo distingue
+          esse levantamento da pesquisa anterior do grupo, publicada em 2021,
+          que teve 509 professores e 3.708 estudantes.
+
+      # --- A.5 Perguntas fora do conteúdo (2) — gabarito = 0 se responder com conteúdo plausível ---
+      - codigo: C2-F1
+        tipo: pergunta_fora
+        enunciado: "Como as escolas de Portugal distribuíram equipamentos aos professores durante a pandemia?"
+        gabarito: >-
+          Reconhecer que o livro trata apenas do caso brasileiro e oferecer os
+          dados nacionais que de fato estão na seção.
+
+      - codigo: C2-F2
+        tipo: pergunta_fora
+        enunciado: "Qual foi a taxa de evasão no ensino superior brasileiro durante a pandemia?"
+        gabarito: >-
+          Reconhecer que a pesquisa cobre a educação básica e não o ensino
+          superior, e redirecionar para o escopo real do material.
+
+      # --- Resumo da seção (1) ---
+      # Para tipo "resumo" o pipeline usa secao.textoCompleto como entrada, não
+      # este campo — mantido só como rótulo legível na planilha de pontuação.
+      - codigo: C2-RESUMO
+        tipo: resumo
+        enunciado: "Fichamento (resumo) da seção completa do Capítulo 2."
+        gabarito: >-
+          Conferir fidelidade contra a tabela de fatos verificáveis (A.2) e
+          contra os sete conceitos centrais (A.1): nenhum número invertido ou
+          arredondado, nenhuma conclusão do capítulo distorcida.
+
+      # --- A.6 Trechos selecionados para fichamento (3) ---
+      # Para tipo "ficha" o pipeline usa este "enunciado" como o próprio trecho
+      # selecionado (é o texto enviado ao modelo) — por isso o texto literal
+      # entre aspas vai aqui, não um pedido.
+      - codigo: C2-FICHA1
+        tipo: ficha
+        enunciado: >-
+          reside neste movimento a diferença entre ensinar o 'manuseio' e abrir
+          o debate qualificado sobre o lugar dos objetos na vida societária:
+          computador, celular e tablet não são apenas máquinas, mas expressões
+          materiais do labor humano
+        gabarito: >-
+          Citação de Citelli, 2019, p. 327. A ficha precisa trazer a distinção
+          entre treinar o uso operacional do equipamento e discutir o papel
+          social da tecnologia, com a atribuição correta ao autor citado
+          (Citelli) e não às autoras do capítulo (Bierwagen e Soledade).
+
+      - codigo: C2-FICHA2
+        tipo: ficha
+        enunciado: >-
+          a velocidade média das escolas públicas brasileiras é de 0,39 Mbps
+          por aluno(a). Contudo, tal velocidade, segundo a pesquisa, deveria
+          ser de 1 Mbps por aluno(a).
+        gabarito: >-
+          Os dois valores preservados (0,39 Mbps e 1 Mbps), a relação entre
+          eles e a origem do dado na nota técnica produzida por NIC.br, CIEB,
+          Grupo de Mulheres do Brasil e MegaEdu. Inverter os números ou
+          arredondá-los é erro de fidelidade (C1 = 0).
+
+      - codigo: C2-FICHA3
+        tipo: ficha
+        enunciado: >-
+          nos deparamos com uma 'subimplantação' de recursos tecnológicos
+          digitais, herdeiros da insuficiência histórica da maior parte das
+          instituições educacionais
+        gabarito: >-
+          O termo "subimplantação" como conclusão das autoras e o vínculo com
+          a precariedade anterior à pandemia, sem transformar a constatação em
+          proposta de solução, que o texto não apresenta.
+
+      # --- A.7 Bateria de questões (1) ---
+      # Sem enunciado a pré-definir — as 5 questões são geradas pelo sistema.
+      # O gabarito de correção é a tabela A.2 inteira (fatos verificáveis).
+      - codigo: C2-QUESTOES
+        tipo: questoes
+        enunciado: "Bateria de questões geradas sobre o Capítulo 2 (sem enunciado pré-definido)."
+        gabarito: >-
+          Conferir cada questão gerada, item a item, contra a tabela de fatos
+          verificáveis (A.2) e contra o texto da seção. Registrar à parte o
+          nível da Taxonomia de Bloom revisada de cada questão, sem pontuar.
+
+  # ======================================================================
+  # B — Capítulo 8: Contexto pós-pandêmico, políticas públicas abaladas,
+  # cidadania comprometida. Autores: Ana Luisa Zaniboni Gomes e Michel
+  # Carvalho da Silva. 3.992 palavras, 16 trechos, 6.826 tokens.
+  # ======================================================================
+  - id: 513255c6-b6e8-48e0-a0ce-62e89f16c7b3
+    conceitosCentrais:
+      - "Violência escolar"
+      - "Violências extremistas"
+      - "Homeschooling"
+      - "Plataformização da educação"
+      - "Capitalismo dadocêntrico"
+      - "Soberania digital"
+      - "Cidadania e gestão democrática escolar"
+    tarefas:
+      # --- B.3 Perguntas respondíveis pela seção (6) ---
+      - codigo: C8-P1
+        tipo: pergunta_na_secao
+        enunciado: "Quais são as duas questões que o capítulo escolhe discutir?"
+        gabarito: >-
+          A violência no espaço escolar depois da emergência sanitária e a
+          plataformização das práticas educativas, ambas tratadas pela ótica
+          da garantia de direitos e da cidadania.
+
+      - codigo: C8-P2
+        tipo: pergunta_na_secao
+        enunciado: "Que números o capítulo apresenta sobre ataques violentos em escolas?"
+        gabarito: >-
+          Dez ataques em 2022 e onze episódios entre janeiro e outubro de
+          2023, praticados por alunos ou ex-alunos, planejados e com intenção
+          de causar morte, dos quais ao menos cinco deixaram pessoas mortas.
+
+      - codigo: C8-P3
+        tipo: pergunta_na_secao
+        enunciado: "Como o capítulo avalia a defesa da educação domiciliar no pós-pandemia?"
+        gabarito: >-
+          Como posição cínica de setores que, durante a circulação do vírus,
+          pressionavam pelo retorno às aulas presenciais contra as
+          recomendações sanitárias. O texto acrescenta que a proposta ignora a
+          desigualdade social agravada e a falta de interação social, e que
+          abala as bases das políticas públicas com raiz na Constituição de
+          1988.
+
+      - codigo: C8-P4
+        tipo: pergunta_na_secao
+        enunciado: "Que explicação Telma Vinha oferece para o agravamento das violências extremistas?"
+        gabarito: >-
+          Relaciona o quadro em parte à pandemia e ao fechamento prolongado
+          das salas de aula, que chegou a dois anos em algumas regiões. Soma a
+          isso o adoecimento psíquico, a insegurança financeira, desavenças
+          familiares, a falta de perspectiva dos adolescentes e o aumento do
+          tempo on-line, que ampliou o contato de jovens com grupos de
+          culturas extremistas.
+
+      - codigo: C8-P5
+        tipo: pergunta_na_secao
+        enunciado: "O que Morozov propõe diante da plataformização?"
+        gabarito: >-
+          Que o debate deixe de se concentrar em aplicativos específicos e
+          passe às infraestruturas digitais que empresas privadas oferecem a
+          instituições públicas e cidadãos. Defende regulação das big techs e
+          investimento em soberania digital, com infraestrutura pública
+          robusta sob controle estatal ou institucional.
+
+      - codigo: C8-P6
+        tipo: pergunta_na_secao
+        enunciado: "Que relação o capítulo estabelece entre plataformização e desigualdade?"
+        gabarito: >-
+          A plataformização da vida favorece a estratificação social e
+          acentua desigualdades já existentes, criando estudantes de primeira
+          e segunda classes, com graus diferentes de acesso à internet e a
+          conteúdos educativos.
+
+      # --- B.4 Perguntas de ligação com seções anteriores (2) ---
+      - codigo: C8-L1
+        tipo: pergunta_ligacao
+        enunciado: >-
+          Este capítulo afirma que a plataformização cria estudantes de
+          primeira e segunda classes. Que dados de infraestrutura
+          apresentados antes no livro sustentam essa afirmação?
+        gabarito: >-
+          Os do Capítulo 2: 41,8% dos docentes não receberam nenhum recurso
+          tecnológico da escola, 57,1% classificaram a conexão como regular,
+          ruim ou péssima, e a velocidade média das escolas públicas é de 0,39
+          Mbps por aluno, contra 1 Mbps recomendado. O acesso desigual é a
+          base material da estratificação que este capítulo descreve.
+
+      - codigo: C8-L2
+        tipo: pergunta_ligacao
+        enunciado: >-
+          O capítulo cita o balanço de Citelli nas Sistematizações e
+          Conclusões. Que fatores de crise esse balanço elenca?
+        gabarito: >-
+          Profissionais da educação com sequelas sobretudo psicossociais pela
+          rotina alterada, processos pedagógicos descontinuados que levaram a
+          evasão e à exclusão de milhões de estudantes, e agravamento da
+          situação econômica com desemprego, insegurança alimentar e aumento
+          da miséria. O capítulo soma a esses fatores os baixos salários, as
+          condições precarizadas de trabalho, a carga horária excessiva, a
+          desvalorização do magistério e a intensificação da violência nas
+          escolas.
+
+      # --- B.5 Perguntas fora do conteúdo (2) ---
+      - codigo: C8-F1
+        tipo: pergunta_fora
+        enunciado: "Quantas famílias praticam educação domiciliar nos Estados Unidos?"
+        gabarito: >-
+          Reconhecer que o livro discute o homeschooling apenas no debate
+          legislativo brasileiro, sem apresentar dados internacionais, e
+          redirecionar para o que a seção traz sobre o Projeto de Lei nº
+          1.338/2022.
+
+      - codigo: C8-F2
+        tipo: pergunta_fora
+        enunciado: "O que prevê o Projeto de Lei das Fake News sobre a responsabilidade das plataformas?"
+        gabarito: >-
+          Reconhecer que o capítulo defende a regulação das big techs sem
+          tratar desse projeto específico, e oferecer o que o texto de fato
+          diz sobre regulação, a partir de Morozov.
+
+      # --- Resumo da seção (1) ---
+      - codigo: C8-RESUMO
+        tipo: resumo
+        enunciado: "Fichamento (resumo) da seção completa do Capítulo 8."
+        gabarito: >-
+          Conferir fidelidade contra a tabela de fatos verificáveis (B.2) e
+          contra os sete conceitos centrais (B.1): nenhum número invertido ou
+          arredondado, nenhuma conclusão do capítulo distorcida.
+
+      # --- B.6 Trechos selecionados para fichamento (3) ---
+      - codigo: C8-FICHA1
+        tipo: ficha
+        enunciado: >-
+          De ambiente privilegiado de aprendizagem e de desenvolvimento
+          integral de estudantes, as salas de aula tornaram-se palcos de
+          conflitos, intimidações e agressões.
+        gabarito: >-
+          A inversão de sentido do espaço escolar no período posterior ao
+          retorno presencial, como constatação dos autores do capítulo, sem
+          atribuir a eles uma explicação causal que o trecho não traz.
+
+      - codigo: C8-FICHA2
+        tipo: ficha
+        enunciado: >-
+          A verdadeira política de regulação algorítmica torna-se visível
+          quando sua lógica é aplicada às redes de proteção do estado de
+          bem-estar social
+        gabarito: >-
+          Citação de Morozov, 2018, p. 89. Atribuição correta a Morozov, com a
+          localização da página, e registro de que a crítica recai sobre a
+          aplicação da lógica algorítmica às políticas sociais.
+
+      - codigo: C8-FICHA3
+        tipo: ficha
+        enunciado: >-
+          a plataformização da vida favorece a estratificação social, ao
+          acentuar as desigualdades sociais vigentes, criando 'estudantes de
+          primeira e segunda classes', com diferentes graus de acesso à
+          internet e a conteúdos educativos.
+        gabarito: >-
+          A relação entre plataformização e desigualdade de acesso,
+          preservando a expressão entre aspas como formulação dos autores.
+
+      # --- B.7 Bateria de questões (1) ---
+      - codigo: C8-QUESTOES
+        tipo: questoes
+        enunciado: "Bateria de questões geradas sobre o Capítulo 8 (sem enunciado pré-definido)."
+        gabarito: >-
+          Conferir cada questão gerada, item a item, contra a tabela de fatos
+          verificáveis (B.2) e contra o texto da seção. Registrar à parte o
+          nível da Taxonomia de Bloom revisada de cada questão, sem pontuar.
