@@ -1,6 +1,8 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Queue } from 'bullmq';
 import { diffChars } from 'diff';
 import { IsNull, Repository } from 'typeorm';
 import { Book } from '../catalog/entities/book.entity';
@@ -17,8 +19,11 @@ import { FichamentoVersaoSaidaDto } from './dto/fichamento-versao-saida.dto';
 import { GerarFichamentoDto } from './dto/gerar-fichamento.dto';
 import { Fichamento } from './entities/fichamento.entity';
 import { FichamentoVersao } from './entities/fichamento-versao.entity';
+import { FILA_FICHAMENTO, FichamentoJobData } from './fichamentos.constants';
 
 const CODIGO_VIOLACAO_UNICIDADE_POSTGRES = '23505';
+const TAMANHO_PREVIEW_TRECHO = 160;
+const RELACOES_SAIDA = ['versoes', 'secao', 'secao.livro'];
 
 @Injectable()
 export class FichamentosService {
@@ -31,6 +36,8 @@ export class FichamentosService {
     private readonly sectionsRepository: Repository<Section>,
     private readonly llmService: LlmService,
     private readonly configService: ConfigService,
+    @InjectQueue(FILA_FICHAMENTO)
+    private readonly filaFichamento: Queue<FichamentoJobData>,
   ) {}
 
   /**
@@ -50,13 +57,16 @@ export class FichamentosService {
 
     const existente = await this.fichamentosRepository.findOne({
       where: { userId, sectionId, trechoCfi: trechoCfi ?? IsNull() },
-      relations: ['versoes'],
+      relations: RELACOES_SAIDA,
     });
     if (existente) {
       return this.paraSaida(existente);
     }
 
-    const secao = await this.sectionsRepository.findOneBy({ id: sectionId });
+    const secao = await this.sectionsRepository.findOne({
+      where: { id: sectionId },
+      relations: ['livro'],
+    });
     if (!secao) {
       throw new NotFoundException('Seção não encontrada.');
     }
@@ -74,7 +84,13 @@ export class FichamentosService {
 
     try {
       const fichamento = await this.fichamentosRepository.save(
-        this.fichamentosRepository.create({ userId, sectionId, trechoCfi }),
+        this.fichamentosRepository.create({
+          userId,
+          sectionId,
+          trechoCfi,
+          trechoTexto: dto.trechoTexto ?? null,
+          statusGeracao: 'pronto',
+        }),
       );
       const versao = await this.versoesRepository.save(
         this.versoesRepository.create({
@@ -87,6 +103,7 @@ export class FichamentosService {
         }),
       );
       fichamento.versoes = [versao];
+      fichamento.secao = secao;
       return this.paraSaida(fichamento);
     } catch (erro) {
       // Duas requisições concorrentes pedindo o mesmo (seção, trecho) na
@@ -95,7 +112,66 @@ export class FichamentosService {
       if (this.ehViolacaoDeUnicidade(erro)) {
         const jaGravado = await this.fichamentosRepository.findOne({
           where: { userId, sectionId, trechoCfi: trechoCfi ?? IsNull() },
-          relations: ['versoes'],
+          relations: RELACOES_SAIDA,
+        });
+        if (jaGravado) {
+          return this.paraSaida(jaGravado);
+        }
+      }
+      throw erro;
+    }
+  }
+
+  /**
+   * Item 2.5 (correção de usabilidade): mesma idempotência de `gerarOuObter`,
+   * mas a geração acontece no `FichamentosProcessor`, fora da requisição — a
+   * geração que excedeu 180s na demonstração concluiu no servidor, foi o
+   * cliente que desistiu. Devolve a ficha já com `statusGeracao:'pendente'`;
+   * o chamador consulta `GET /fichamentos/:id` (já existente) até virar
+   * `'pronto'`.
+   */
+  async gerarOuObterAssincrono(
+    userId: string,
+    sectionId: string,
+    dto: GerarFichamentoDto,
+  ): Promise<FichamentoSaidaDto> {
+    const trechoCfi = dto.trechoCfi ?? null;
+
+    const existente = await this.fichamentosRepository.findOne({
+      where: { userId, sectionId, trechoCfi: trechoCfi ?? IsNull() },
+      relations: RELACOES_SAIDA,
+    });
+    if (existente) {
+      return this.paraSaida(existente);
+    }
+
+    const secao = await this.sectionsRepository.findOne({
+      where: { id: sectionId },
+      relations: ['livro'],
+    });
+    if (!secao) {
+      throw new NotFoundException('Seção não encontrada.');
+    }
+
+    try {
+      const fichamento = await this.fichamentosRepository.save(
+        this.fichamentosRepository.create({
+          userId,
+          sectionId,
+          trechoCfi,
+          trechoTexto: dto.trechoTexto ?? null,
+          statusGeracao: 'pendente',
+        }),
+      );
+      fichamento.secao = secao;
+      fichamento.versoes = [];
+      await this.filaFichamento.add('gerar', { fichamentoId: fichamento.id });
+      return this.paraSaida(fichamento);
+    } catch (erro) {
+      if (this.ehViolacaoDeUnicidade(erro)) {
+        const jaGravado = await this.fichamentosRepository.findOne({
+          where: { userId, sectionId, trechoCfi: trechoCfi ?? IsNull() },
+          relations: RELACOES_SAIDA,
         });
         if (jaGravado) {
           return this.paraSaida(jaGravado);
@@ -161,57 +237,71 @@ export class FichamentosService {
     await this.fichamentosRepository.remove(fichamento);
   }
 
+  /** Item 2.6 (correção de usabilidade): filtro exato por seção e busca
+   * textual (case-insensitive) sobre o conteúdo atual e o trecho original. */
   async listarMeus(
     userId: string,
     livroId?: string,
+    sectionId?: string,
+    texto?: string,
   ): Promise<FichamentoResumoDto[]> {
-    const fichamentos = await this.carregarComSecaoELivro(userId, livroId);
+    const fichamentos = await this.carregarComSecaoELivro(userId, livroId, sectionId, texto);
     return fichamentos.map((fichamento) => this.paraResumo(fichamento));
   }
 
   async exportarMarkdown(userId: string): Promise<string> {
     const fichamentos = await this.carregarComSecaoELivro(userId);
+    return fichamentos.map((fichamento) => this.montarBlocoMarkdown(fichamento)).join('\n\n---\n\n');
+  }
 
-    const blocos = fichamentos.map((fichamento) => {
-      const secao = fichamento.secao!;
-      const ultimaVersao = this.ultimaVersao(fichamento);
-      const titulo = fichamento.trechoCfi
-        ? `${secao.titulo} — trecho ${fichamento.trechoCfi}`
-        : secao.titulo;
-      return `# ${secao.livro.titulo}\n\n## ${titulo}\n\n${ultimaVersao.conteudo}`;
-    });
+  /** Item 2.9 (correção de usabilidade): mesma montagem de bloco do
+   * exportador em massa, escopada a uma única ficha. */
+  async exportarMarkdownUnico(userId: string, id: string): Promise<string> {
+    const fichamento = await this.buscarDoAluno(userId, id);
+    return this.montarBlocoMarkdown(fichamento);
+  }
 
-    return blocos.join('\n\n---\n\n');
+  private montarBlocoMarkdown(fichamento: Fichamento): string {
+    const secao = fichamento.secao!;
+    const ultimaVersao = this.ultimaVersao(fichamento);
+    const titulo = fichamento.trechoCfi
+      ? `${secao.titulo} — trecho ${fichamento.trechoCfi}`
+      : secao.titulo;
+    return `# ${secao.livro!.titulo}\n\n## ${titulo}\n\n${ultimaVersao.conteudo}`;
   }
 
   private async carregarComSecaoELivro(
     userId: string,
     livroId?: string,
+    sectionId?: string,
+    texto?: string,
   ): Promise<Array<Fichamento & { secao: Section & { livro: Book } }>> {
     const fichamentos = await this.fichamentosRepository.find({
       where: { userId },
-      relations: ['versoes'],
+      relations: RELACOES_SAIDA,
       order: { atualizadoEm: 'DESC' },
     });
 
-    const comSecao = await Promise.all(
-      fichamentos.map(async (fichamento) => {
-        const secao = await this.sectionsRepository.findOne({
-          where: { id: fichamento.sectionId },
-          relations: ['livro'],
-        });
-        return Object.assign(fichamento, { secao: secao ?? undefined });
-      }),
+    let filtrados = fichamentos.filter(
+      (f): f is Fichamento & { secao: Section & { livro: Book } } => f.secao !== undefined,
     );
 
-    const filtrados = livroId
-      ? comSecao.filter((f) => f.secao?.bookId === livroId)
-      : comSecao;
+    if (livroId) {
+      filtrados = filtrados.filter((f) => f.secao.bookId === livroId);
+    }
+    if (sectionId) {
+      filtrados = filtrados.filter((f) => f.sectionId === sectionId);
+    }
+    if (texto) {
+      const agulha = texto.toLowerCase();
+      filtrados = filtrados.filter((f) => {
+        const conteudoAtual = this.ultimaVersao(f).conteudo.toLowerCase();
+        const trecho = (f.trechoTexto ?? '').toLowerCase();
+        return conteudoAtual.includes(agulha) || trecho.includes(agulha);
+      });
+    }
 
-    return filtrados.filter(
-      (f): f is Fichamento & { secao: Section & { livro: Book } } =>
-        f.secao !== undefined,
-    );
+    return filtrados;
   }
 
   private paraResumo(
@@ -228,6 +318,10 @@ export class FichamentosService {
       origemVersaoAtual: ultimaVersao.origem,
       editado: (fichamento.versoes ?? []).some((v) => v.origem === 'aluno'),
       atualizadoEm: fichamento.atualizadoEm,
+      criadoEm: fichamento.criadoEm,
+      trechoPreview: fichamento.trechoTexto
+        ? fichamento.trechoTexto.slice(0, TAMANHO_PREVIEW_TRECHO)
+        : null,
     };
   }
 
@@ -237,7 +331,7 @@ export class FichamentosService {
   ): Promise<Fichamento> {
     const fichamento = await this.fichamentosRepository.findOne({
       where: { id, userId },
-      relations: ['versoes'],
+      relations: RELACOES_SAIDA,
     });
     if (!fichamento) {
       throw new NotFoundException('Fichamento não encontrado.');
@@ -257,6 +351,18 @@ export class FichamentosService {
 
   private ultimaVersao(fichamento: Fichamento): FichamentoVersao {
     const versoes = fichamento.versoes ?? [];
+    if (versoes.length === 0) {
+      // Item 2.5: ficha com geração pendente/com erro ainda não tem versão —
+      // placeholder seguro em vez de `reduce` num array vazio.
+      return {
+        id: '',
+        fichamentoId: fichamento.id,
+        numero: 0,
+        conteudo: '',
+        origem: 'ia',
+        criadoEm: fichamento.criadoEm,
+      } as FichamentoVersao;
+    }
     return versoes.reduce((maior, atual) =>
       atual.numero > maior.numero ? atual : maior,
     );
@@ -312,18 +418,44 @@ export class FichamentosService {
   }
 
   private paraSaida(fichamento: Fichamento): FichamentoSaidaDto {
-    const atual = this.ultimaVersao(fichamento);
-    const elaboracao = this.calcularElaboracao(fichamento);
-    return {
+    const secao = fichamento.secao!;
+    const base = {
       id: fichamento.id,
       sectionId: fichamento.sectionId,
       trechoCfi: fichamento.trechoCfi ?? null,
+      trechoTexto: fichamento.trechoTexto ?? null,
+      tituloLivro: secao.livro!.titulo,
+      livroId: secao.bookId,
+      tituloSecao: secao.titulo,
+      statusGeracao: fichamento.statusGeracao,
+      erroMensagem: fichamento.erroMensagem ?? null,
+      criadoEm: fichamento.criadoEm,
+      atualizadoEm: fichamento.atualizadoEm,
+    };
+
+    // Item 2.5: ainda não há versão enquanto a geração assíncrona não
+    // termina — devolve valores de espera em vez de chamar `ultimaVersao`/
+    // `calcularElaboracao` como se já houvesse conteúdo.
+    if (fichamento.statusGeracao !== 'pronto' || (fichamento.versoes ?? []).length === 0) {
+      return {
+        ...base,
+        numeroVersaoAtual: 0,
+        origemVersaoAtual: 'ia',
+        conteudo: '',
+        caracteresIa: 0,
+        caracteresAluno: 0,
+        proporcaoAluno: 0,
+      };
+    }
+
+    const atual = this.ultimaVersao(fichamento);
+    const elaboracao = this.calcularElaboracao(fichamento);
+    return {
+      ...base,
       numeroVersaoAtual: atual.numero,
       origemVersaoAtual: atual.origem,
       conteudo: atual.conteudo,
       ...elaboracao,
-      criadoEm: fichamento.criadoEm,
-      atualizadoEm: fichamento.atualizadoEm,
     };
   }
 }

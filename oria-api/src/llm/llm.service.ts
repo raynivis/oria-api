@@ -11,8 +11,10 @@ import * as hintTemplate from '../prompts/templates/hint';
 import * as avaliacaoTemplate from '../prompts/templates/avaliacao';
 import * as panoramaTemplate from '../prompts/templates/panorama';
 import * as questionsTemplate from '../prompts/templates/questions';
+import * as vocabularioTemplate from '../prompts/templates/vocabulario';
 import { LlmCall } from './entities/llm-call.entity';
 import { extrairJson } from './extrair-json';
+import { LlmPermanenteError, LlmTransientError } from './llm.exceptions';
 import { MensagemChat, OpcoesCompletar, PapelLlm } from './llm.types';
 
 interface ModuloTemplate {
@@ -28,6 +30,7 @@ const TEMPLATES: Partial<Record<PapelLlm, ModuloTemplate>> = {
   hint: hintTemplate,
   avaliacao: avaliacaoTemplate,
   dialogue: dialogueTemplate,
+  vocabulario: vocabularioTemplate,
 };
 
 const ENV_POR_PAPEL: Record<PapelLlm, string> = {
@@ -38,13 +41,16 @@ const ENV_POR_PAPEL: Record<PapelLlm, string> = {
   questions: 'LLM_QUESTIONS_MODEL',
   concepts: 'LLM_CONCEPTS_MODEL',
   avaliacao: 'LLM_AVALIACAO_MODEL',
+  vocabulario: 'LLM_VOCABULARY_MODEL',
 };
 
 const MAXIMO_TENTATIVAS = 2;
 
+type ClassificacaoErro = 'transitorio' | 'permanente';
+
 type ResultadoTentativa<T> =
   | { sucesso: true; dados: T }
-  | { sucesso: false; erro: string };
+  | { sucesso: false; erro: string; classificacao: ClassificacaoErro };
 
 export interface ResultadoTransmissao {
   texto: string;
@@ -83,6 +89,7 @@ export class LlmService {
     const mensagens = template.montarMensagens(variaveis as never);
 
     let ultimoErro = '';
+    let ultimaClassificacao: ClassificacaoErro = 'transitorio';
 
     for (let tentativa = 1; tentativa <= MAXIMO_TENTATIVAS; tentativa++) {
       const resultado = await this.executarTentativa(
@@ -99,6 +106,7 @@ export class LlmService {
       }
 
       ultimoErro = resultado.erro;
+      ultimaClassificacao = resultado.classificacao;
       if (tentativa < MAXIMO_TENTATIVAS) {
         this.logger.warn(
           `Tentativa ${tentativa} falhou para o papel "${papel}": ${ultimoErro}. Tentando de novo.`,
@@ -106,9 +114,10 @@ export class LlmService {
       }
     }
 
-    throw new Error(
-      `Falha ao obter saída válida do papel "${papel}" após ${MAXIMO_TENTATIVAS} tentativas: ${ultimoErro}`,
-    );
+    const mensagem = `Falha ao obter saída válida do papel "${papel}" após ${MAXIMO_TENTATIVAS} tentativas: ${ultimoErro}`;
+    throw ultimaClassificacao === 'transitorio'
+      ? new LlmTransientError(mensagem)
+      : new LlmPermanenteError(mensagem);
   }
 
   private async executarTentativa<T>(
@@ -129,6 +138,7 @@ export class LlmService {
     let sucesso = false;
     let dados: T | undefined;
     let mensagemErro = '';
+    let classificacao: ClassificacaoErro = 'permanente';
 
     try {
       const resposta = await this.chamarOpenRouter(modelo, mensagens, opcoes);
@@ -145,10 +155,12 @@ export class LlmService {
         dados = resultado.data;
       } else {
         mensagemErro = `Saída fora do schema: ${resultado.error.message}`;
+        classificacao = 'permanente';
       }
     } catch (erro) {
       mensagemErro =
         erro instanceof Error ? erro.message : 'Erro desconhecido ao chamar o LLM.';
+      classificacao = this.classificarErroOpenRouter(erro);
     }
 
     const duracaoMs = Date.now() - inicio;
@@ -171,7 +183,25 @@ export class LlmService {
       }),
     );
 
-    return sucesso ? { sucesso: true, dados: dados! } : { sucesso: false, erro: mensagemErro };
+    return sucesso
+      ? { sucesso: true, dados: dados! }
+      : { sucesso: false, erro: mensagemErro, classificacao };
+  }
+
+  /**
+   * 429/5xx/timeout do OpenRouter → transitório (repetir mais tarde pode
+   * funcionar); outro 4xx → permanente. Erro não-Axios (ex.: `JSON.parse`
+   * dentro de `extrairJson`) cai no padrão seguro transitório.
+   */
+  private classificarErroOpenRouter(erro: unknown): ClassificacaoErro {
+    if (axios.isAxiosError(erro)) {
+      const status = erro.response?.status;
+      if (status === undefined) {
+        return 'transitorio';
+      }
+      return status === 429 || status >= 500 ? 'transitorio' : 'permanente';
+    }
+    return 'transitorio';
   }
 
   /**

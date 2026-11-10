@@ -1,11 +1,13 @@
 import { NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Queue } from 'bullmq';
 import { Repository } from 'typeorm';
 import { LlmService } from '../llm/llm.service';
 import { Book } from '../catalog/entities/book.entity';
 import { Section } from '../catalog/entities/section.entity';
 import { Fichamento } from './entities/fichamento.entity';
 import { FichamentoVersao } from './entities/fichamento-versao.entity';
+import { FichamentoJobData } from './fichamentos.constants';
 import { FichamentosService } from './fichamentos.service';
 
 function criarConfigService(): ConfigService {
@@ -25,12 +27,25 @@ function criarSecao(): Partial<Section> {
   };
 }
 
+/** Toda fixture de `Fichamento` passada por `paraSaida` precisa de `secao` (a
+ * relação não é carregada de verdade num fake de repositório) e de
+ * `statusGeracao: 'pronto'` (item 2.5) — sem isso `paraSaida` devolve os
+ * valores de espera do fluxo assíncrono em vez do conteúdo real. */
+function comSecaoEStatusPronto(dados: Partial<Fichamento>): Partial<Fichamento> {
+  return { secao: criarSecao() as Section, statusGeracao: 'pronto', ...dados };
+}
+
+function criarFilaFalsa(): Queue<FichamentoJobData> {
+  return { add: jest.fn().mockResolvedValue({ id: 'job-1' }) } as unknown as Queue<FichamentoJobData>;
+}
+
 describe('FichamentosService', () => {
   function montarServico(opts: {
     fichamentosRepository: Partial<Repository<Fichamento>>;
     versoesRepository?: Partial<Repository<FichamentoVersao>>;
     sectionsRepository?: Partial<Repository<Section>>;
     llmService?: Partial<LlmService>;
+    filaFichamento?: Queue<FichamentoJobData>;
   }): FichamentosService {
     return new FichamentosService(
       opts.fichamentosRepository as Repository<Fichamento>,
@@ -38,6 +53,7 @@ describe('FichamentosService', () => {
       (opts.sectionsRepository ?? {}) as Repository<Section>,
       (opts.llmService ?? {}) as LlmService,
       criarConfigService(),
+      opts.filaFichamento ?? criarFilaFalsa(),
     );
   }
 
@@ -53,7 +69,7 @@ describe('FichamentosService', () => {
         save: jest.fn((dados) => Promise.resolve({ ...dados, id: 'versao-1' })),
       } as unknown as Repository<FichamentoVersao>;
       const sectionsRepository = {
-        findOneBy: jest.fn().mockResolvedValue(criarSecao()),
+        findOne: jest.fn().mockResolvedValue(criarSecao()),
       } as unknown as Repository<Section>;
       const llmService = {
         completar: jest.fn().mockResolvedValue({ conteudo: CONTEUDO_IA }),
@@ -80,9 +96,12 @@ describe('FichamentosService', () => {
       expect(resultado.numeroVersaoAtual).toBe(1);
       expect(resultado.origemVersaoAtual).toBe('ia');
       expect(resultado.trechoCfi).toBeNull();
+      expect(resultado.tituloLivro).toBe('Livro X');
+      expect(resultado.tituloSecao).toBe('Seção 1');
+      expect(resultado.statusGeracao).toBe('pronto');
     });
 
-    it('com trechoCfi/trechoTexto, usa o trecho como entrada do prompt, não o texto da seção', async () => {
+    it('com trechoCfi/trechoTexto, usa o trecho como entrada do prompt, não o texto da seção, e persiste o trecho', async () => {
       const fichamentosRepository = {
         findOne: jest.fn().mockResolvedValue(null),
         create: jest.fn((dados) => dados),
@@ -93,7 +112,7 @@ describe('FichamentosService', () => {
         save: jest.fn((dados) => Promise.resolve({ ...dados, id: 'versao-1' })),
       } as unknown as Repository<FichamentoVersao>;
       const sectionsRepository = {
-        findOneBy: jest.fn().mockResolvedValue(criarSecao()),
+        findOne: jest.fn().mockResolvedValue(criarSecao()),
       } as unknown as Repository<Section>;
       const llmService = {
         completar: jest.fn().mockResolvedValue({ conteudo: CONTEUDO_IA }),
@@ -117,10 +136,14 @@ describe('FichamentosService', () => {
         expect.anything(),
       );
       expect(resultado.trechoCfi).toBe('epubcfi(/6/4!/4/2)');
+      expect(resultado.trechoTexto).toBe('Texto só do trecho selecionado.');
+      expect(fichamentosRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ trechoTexto: 'Texto só do trecho selecionado.' }),
+      );
     });
 
     it('chamando de novo com o mesmo recorte, devolve o fichamento existente sem tocar no LLM', async () => {
-      const jaGravado: Partial<Fichamento> = {
+      const jaGravado = comSecaoEStatusPronto({
         id: 'fichamento-1',
         userId: 'aluno-1',
         sectionId: 'secao-1',
@@ -132,7 +155,7 @@ describe('FichamentosService', () => {
             origem: 'ia',
           } as FichamentoVersao,
         ],
-      };
+      });
       const fichamentosRepository = {
         findOne: jest.fn().mockResolvedValue(jaGravado),
       } as unknown as Repository<Fichamento>;
@@ -151,7 +174,7 @@ describe('FichamentosService', () => {
         findOne: jest.fn().mockResolvedValue(null),
       } as unknown as Repository<Fichamento>;
       const sectionsRepository = {
-        findOneBy: jest.fn().mockResolvedValue(null),
+        findOne: jest.fn().mockResolvedValue(null),
       } as unknown as Repository<Section>;
       const llmService = { completar: jest.fn() } as unknown as LlmService;
 
@@ -167,11 +190,11 @@ describe('FichamentosService', () => {
     });
 
     it('em corrida concorrente (unique violation ao salvar), devolve o que já foi gravado', async () => {
-      const jaGravado: Partial<Fichamento> = {
+      const jaGravado = comSecaoEStatusPronto({
         id: 'fichamento-1',
         trechoCfi: null,
         versoes: [{ numero: 1, conteudo: CONTEUDO_IA, origem: 'ia' } as FichamentoVersao],
-      };
+      });
       const fichamentosRepository = {
         findOne: jest
           .fn()
@@ -181,7 +204,7 @@ describe('FichamentosService', () => {
         save: jest.fn().mockRejectedValue({ driverError: { code: '23505' } }),
       } as unknown as Repository<Fichamento>;
       const sectionsRepository = {
-        findOneBy: jest.fn().mockResolvedValue(criarSecao()),
+        findOne: jest.fn().mockResolvedValue(criarSecao()),
       } as unknown as Repository<Section>;
       const llmService = {
         completar: jest.fn().mockResolvedValue({ conteudo: CONTEUDO_IA }),
@@ -199,9 +222,75 @@ describe('FichamentosService', () => {
     });
   });
 
+  describe('gerarOuObterAssincrono (item 2.5)', () => {
+    it('cria a ficha pendente, enfileira o job e devolve statusGeracao "pendente" sem chamar o LLM', async () => {
+      const fichamentosRepository = {
+        findOne: jest.fn().mockResolvedValue(null),
+        create: jest.fn((dados) => dados),
+        save: jest.fn((dados) => Promise.resolve({ ...dados, id: 'fichamento-1' })),
+      } as unknown as Repository<Fichamento>;
+      const sectionsRepository = {
+        findOne: jest.fn().mockResolvedValue(criarSecao()),
+      } as unknown as Repository<Section>;
+      const llmService = { completar: jest.fn() } as unknown as LlmService;
+      const filaFichamento = criarFilaFalsa();
+
+      const service = montarServico({
+        fichamentosRepository,
+        sectionsRepository,
+        llmService,
+        filaFichamento,
+      });
+
+      const resultado = await service.gerarOuObterAssincrono('aluno-1', 'secao-1', {});
+
+      expect(llmService.completar).not.toHaveBeenCalled();
+      expect(filaFichamento.add).toHaveBeenCalledWith('gerar', { fichamentoId: 'fichamento-1' });
+      expect(resultado.statusGeracao).toBe('pendente');
+      expect(resultado.conteudo).toBe('');
+      expect(fichamentosRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ statusGeracao: 'pendente' }),
+      );
+    });
+
+    it('idempotente: com o mesmo recorte já existente, devolve-o sem enfileirar de novo', async () => {
+      const jaGravado = comSecaoEStatusPronto({
+        id: 'fichamento-1',
+        trechoCfi: null,
+        versoes: [{ numero: 1, conteudo: CONTEUDO_IA, origem: 'ia' } as FichamentoVersao],
+      });
+      const fichamentosRepository = {
+        findOne: jest.fn().mockResolvedValue(jaGravado),
+      } as unknown as Repository<Fichamento>;
+      const filaFichamento = criarFilaFalsa();
+
+      const service = montarServico({ fichamentosRepository, filaFichamento });
+
+      const resultado = await service.gerarOuObterAssincrono('aluno-1', 'secao-1', {});
+
+      expect(filaFichamento.add).not.toHaveBeenCalled();
+      expect(resultado.conteudo).toBe(CONTEUDO_IA);
+    });
+
+    it('erra com 404 se a seção não existe', async () => {
+      const fichamentosRepository = {
+        findOne: jest.fn().mockResolvedValue(null),
+      } as unknown as Repository<Fichamento>;
+      const sectionsRepository = {
+        findOne: jest.fn().mockResolvedValue(null),
+      } as unknown as Repository<Section>;
+
+      const service = montarServico({ fichamentosRepository, sectionsRepository });
+
+      await expect(
+        service.gerarOuObterAssincrono('aluno-1', 'nao-existe', {}),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('editar', () => {
     it('três PATCH sucessivos produzem as versões 2, 3 e 4, todas de origem aluno', async () => {
-      const fichamento: Fichamento = {
+      const fichamento = comSecaoEStatusPronto({
         id: 'fichamento-1',
         userId: 'aluno-1',
         sectionId: 'secao-1',
@@ -209,7 +298,7 @@ describe('FichamentosService', () => {
         criadoEm: new Date(),
         atualizadoEm: new Date(),
         versoes: [{ numero: 1, conteudo: CONTEUDO_IA, origem: 'ia' } as FichamentoVersao],
-      };
+      }) as Fichamento;
 
       const fichamentosRepository = {
         findOne: jest.fn().mockResolvedValue(fichamento),
@@ -255,13 +344,13 @@ describe('FichamentosService', () => {
 
   describe('elaboração (caracteresIa/caracteresAluno/proporcaoAluno)', () => {
     it('bate com contagem manual: rascunho sem edição tem proporcaoAluno 0', async () => {
-      const fichamento: Partial<Fichamento> = {
+      const fichamento = comSecaoEStatusPronto({
         id: 'f1',
         trechoCfi: null,
         criadoEm: new Date(),
         atualizadoEm: new Date(),
         versoes: [{ numero: 1, conteudo: 'abcde', origem: 'ia' } as FichamentoVersao],
-      };
+      });
       const fichamentosRepository = {
         findOne: jest.fn().mockResolvedValue(fichamento),
       } as unknown as Repository<Fichamento>;
@@ -275,7 +364,7 @@ describe('FichamentosService', () => {
     });
 
     it('bate com contagem manual: texto totalmente reescrito tem proporcaoAluno 1', async () => {
-      const fichamento: Partial<Fichamento> = {
+      const fichamento = comSecaoEStatusPronto({
         id: 'f1',
         trechoCfi: null,
         criadoEm: new Date(),
@@ -284,7 +373,7 @@ describe('FichamentosService', () => {
           { numero: 1, conteudo: 'abcde', origem: 'ia' } as FichamentoVersao,
           { numero: 2, conteudo: 'xyz123', origem: 'aluno' } as FichamentoVersao,
         ],
-      };
+      });
       const fichamentosRepository = {
         findOne: jest.fn().mockResolvedValue(fichamento),
       } as unknown as Repository<Fichamento>;
@@ -299,7 +388,7 @@ describe('FichamentosService', () => {
 
     it('bate com contagem manual: edição parcial dá proporção intermediária', async () => {
       // "abcde" -> "abcXYe": mantém "ab" e "e" (3 chars da IA), troca "cd" por "XY" (2 chars do aluno)
-      const fichamento: Partial<Fichamento> = {
+      const fichamento = comSecaoEStatusPronto({
         id: 'f1',
         trechoCfi: null,
         criadoEm: new Date(),
@@ -308,7 +397,7 @@ describe('FichamentosService', () => {
           { numero: 1, conteudo: 'abcde', origem: 'ia' } as FichamentoVersao,
           { numero: 2, conteudo: 'abXYe', origem: 'aluno' } as FichamentoVersao,
         ],
-      };
+      });
       const fichamentosRepository = {
         findOne: jest.fn().mockResolvedValue(fichamento),
       } as unknown as Repository<Fichamento>;
@@ -340,6 +429,70 @@ describe('FichamentosService', () => {
 
       expect(versoes.map((v) => v.numero)).toEqual([1, 2]);
       expect(versoes.map((v) => v.origem)).toEqual(['ia', 'aluno']);
+    });
+  });
+
+  describe('listarMeus (item 2.6)', () => {
+    function criarFichamentoListagem(overrides: Partial<Fichamento> = {}): Fichamento {
+      return comSecaoEStatusPronto({
+        id: 'f1',
+        userId: 'aluno-1',
+        sectionId: 'secao-1',
+        trechoCfi: null,
+        trechoTexto: 'Um trecho qualquer sobre educomunicação.',
+        criadoEm: new Date('2026-01-01T00:00:00Z'),
+        atualizadoEm: new Date('2026-01-02T00:00:00Z'),
+        versoes: [{ numero: 1, conteudo: CONTEUDO_IA, origem: 'ia' } as FichamentoVersao],
+        ...overrides,
+      }) as Fichamento;
+    }
+
+    it('filtra por sectionId e devolve criadoEm + trechoPreview', async () => {
+      const fichamentosRepository = {
+        find: jest.fn().mockResolvedValue([
+          criarFichamentoListagem(),
+          criarFichamentoListagem({ id: 'f2', sectionId: 'outra-secao' }),
+        ]),
+      } as unknown as Repository<Fichamento>;
+
+      const service = montarServico({ fichamentosRepository });
+      const resumo = await service.listarMeus('aluno-1', undefined, 'secao-1');
+
+      expect(resumo).toHaveLength(1);
+      expect(resumo[0].criadoEm).toEqual(new Date('2026-01-01T00:00:00Z'));
+      expect(resumo[0].trechoPreview).toBe('Um trecho qualquer sobre educomunicação.');
+    });
+
+    it('busca textual encontra pelo trecho ou pelo conteúdo, case-insensitive', async () => {
+      const fichamentosRepository = {
+        find: jest.fn().mockResolvedValue([
+          criarFichamentoListagem({ id: 'f1', trechoTexto: 'fala sobre EDUCOMUNICAÇÃO' }),
+          criarFichamentoListagem({ id: 'f2', trechoTexto: 'não tem relação nenhuma' }),
+        ]),
+      } as unknown as Repository<Fichamento>;
+
+      const service = montarServico({ fichamentosRepository });
+      const resumo = await service.listarMeus('aluno-1', undefined, undefined, 'educomunicação');
+
+      expect(resumo.map((r) => r.id)).toEqual(['f1']);
+    });
+  });
+
+  describe('exportarMarkdownUnico (item 2.9)', () => {
+    it('exporta só a ficha pedida, no mesmo formato do exportador em massa', async () => {
+      const fichamento = comSecaoEStatusPronto({
+        id: 'f1',
+        trechoCfi: null,
+        versoes: [{ numero: 1, conteudo: 'Conteúdo da ficha', origem: 'ia' } as FichamentoVersao],
+      });
+      const fichamentosRepository = {
+        findOne: jest.fn().mockResolvedValue(fichamento),
+      } as unknown as Repository<Fichamento>;
+
+      const service = montarServico({ fichamentosRepository });
+      const markdown = await service.exportarMarkdownUnico('aluno-1', 'f1');
+
+      expect(markdown).toBe('# Livro X\n\n## Seção 1\n\nConteúdo da ficha');
     });
   });
 });

@@ -22,10 +22,14 @@ import { IniciarTentativaDto } from './dto/iniciar-tentativa.dto';
 import { PassoTentativaDto } from './dto/passo-tentativa.dto';
 import { TentativaSaidaDto } from './dto/tentativa-saida.dto';
 import { Attempt } from './entities/attempt.entity';
-import { AttemptStep } from './entities/attempt-step.entity';
+import { AttemptStep, ChunkMostrado } from './entities/attempt-step.entity';
 import { Question } from './entities/question.entity';
 
 const FALLBACK_NEUTRO = 'Tente reformular sua resposta com base no que leu.';
+
+interface ChunkParaHint extends ChunkMostrado {
+  texto: string;
+}
 
 /**
  * Máquina de estados do fluxo step-based (IMPLEMENTATION.md, Fase 7; CLAUDE.md,
@@ -61,7 +65,7 @@ export class TentativasService {
         }),
       );
 
-      const conteudo = await this.gerarPassoSistema(manager, {
+      const { conteudo, chunksMostrados } = await this.gerarPassoSistema(manager, {
         tipo: 'pedido_justificativa',
         questao,
         tentativa,
@@ -74,6 +78,7 @@ export class TentativasService {
           numero: 1,
           tipo: 'pedido_justificativa',
           conteudo,
+          chunksMostrados,
         }),
       );
 
@@ -116,6 +121,7 @@ export class TentativasService {
           tipo: 'justificativa_aluno',
           conteudo: dto.conteudo!,
           avaliacaoSuficiente: suficiente,
+          chunksMostrados: [],
         }),
       );
 
@@ -178,14 +184,14 @@ export class TentativasService {
   ): Promise<void> {
     const tipo: TipoPassoSistema =
       tentativa.nPassos === 1 ? 'dica_conceitual' : 'dica_localizada';
-    const conteudo = await this.gerarPassoSistema(manager, {
+    const { conteudo, chunksMostrados } = await this.gerarPassoSistema(manager, {
       tipo,
       questao,
       tentativa,
       trilha: await this.carregarPassos(manager, tentativa.id),
       numeroPasso: tentativa.nPassos + 1,
     });
-    await this.persistirPasso(manager, tentativa.id, tipo, conteudo);
+    await this.persistirPasso(manager, tentativa.id, tipo, conteudo, chunksMostrados);
   }
 
   private async adicionarResolucao(
@@ -198,7 +204,7 @@ export class TentativasService {
       .reverse()
       .find((passo) => passo.avaliacaoSuficiente !== null && passo.avaliacaoSuficiente !== undefined);
 
-    const conteudo = await this.gerarPassoSistema(manager, {
+    const { conteudo, chunksMostrados } = await this.gerarPassoSistema(manager, {
       tipo: 'resolucao',
       questao,
       tentativa,
@@ -206,7 +212,7 @@ export class TentativasService {
       numeroPasso: tentativa.nPassos + 1,
       ultimaJustificativaSuficiente: ultimaAvaliacao?.avaliacaoSuficiente ?? undefined,
     });
-    await this.persistirPasso(manager, tentativa.id, 'resolucao', conteudo);
+    await this.persistirPasso(manager, tentativa.id, 'resolucao', conteudo, chunksMostrados);
   }
 
   private async persistirPasso(
@@ -214,10 +220,11 @@ export class TentativasService {
     attemptId: string,
     tipo: TipoPassoSistema,
     conteudo: string,
+    chunksMostrados: ChunkMostrado[],
   ): Promise<void> {
     const numero = (await this.carregarPassos(manager, attemptId)).length + 1;
     await manager.save(
-      manager.create(AttemptStep, { attemptId, numero, tipo, conteudo }),
+      manager.create(AttemptStep, { attemptId, numero, tipo, conteudo, chunksMostrados }),
     );
   }
 
@@ -237,8 +244,13 @@ export class TentativasService {
       numeroPasso: number;
       ultimaJustificativaSuficiente?: boolean;
     },
-  ): Promise<string> {
+  ): Promise<{ conteudo: string; chunksMostrados: ChunkMostrado[] }> {
     const chunks = await this.carregarChunks(manager, contexto.questao);
+    const chunksMostrados: ChunkMostrado[] = chunks.map((c) => ({
+      chunkId: c.chunkId,
+      sectionId: c.sectionId,
+      ancoraCfi: c.ancoraCfi,
+    }));
     const variaveis: VariaveisHint = {
       tipo: contexto.tipo,
       enunciado: contexto.questao.enunciado,
@@ -246,13 +258,13 @@ export class TentativasService {
       respostaInicial: contexto.tentativa.respostaInicial,
       trilha: contexto.trilha.map((passo) => ({ tipo: passo.tipo, conteudo: passo.conteudo })),
       numeroPasso: contexto.numeroPasso,
-      chunks,
+      chunks: chunks.map((c) => c.texto),
       ultimaJustificativaSuficiente: contexto.ultimaJustificativaSuficiente,
     };
 
     if (contexto.tipo === 'resolucao') {
       const saida = await this.llmService.completar('hint', variaveis, schemaResolucao);
-      return saida.conteudo;
+      return { conteudo: saida.conteudo, chunksMostrados };
     }
 
     try {
@@ -261,14 +273,14 @@ export class TentativasService {
         variaveis,
         schemaPassoIntermediario,
       );
-      return saida.conteudo;
+      return { conteudo: saida.conteudo, chunksMostrados };
     } catch (erro) {
       this.logger.error(
         `Passo ${contexto.tipo} da tentativa ${contexto.tentativa.id} falhou após as tentativas do LLM; usando fallback neutro. ${
           erro instanceof Error ? erro.message : String(erro)
         }`,
       );
-      return FALLBACK_NEUTRO;
+      return { conteudo: FALLBACK_NEUTRO, chunksMostrados };
     }
   }
 
@@ -284,29 +296,40 @@ export class TentativasService {
         enunciado: questao.enunciado,
         respostaReferencia: questao.respostaReferencia,
         justificativa,
-        chunks,
+        chunks: chunks.map((c) => c.texto),
       },
       schemaAvaliacao,
     );
     return saida.suficiente;
   }
 
-  /** Material da questão: os chunks que a sustentam, ou o texto da seção se não houver vínculo. */
-  private async carregarChunks(manager: EntityManager, questao: Question): Promise<string[]> {
+  /** Material da questão: os chunks que a sustentam, ou o texto da seção se
+   * não houver vínculo. Item 3.9: mantém `chunkId`/`sectionId`/`ancoraCfi` de
+   * cada um, antes descartados — `gerarPassoSistema` ainda só repassa
+   * `.texto` ao prompt, mas agora também devolve essa metadata para persistir
+   * no passo. */
+  private async carregarChunks(manager: EntityManager, questao: Question): Promise<ChunkParaHint[]> {
     if (questao.chunksFonte.length > 0) {
       const chunks = await manager.find(Chunk, {
         where: { id: In(questao.chunksFonte) },
         order: { ordem: 'ASC' },
       });
       if (chunks.length > 0) {
-        return chunks.map((chunk) => chunk.texto);
+        return chunks.map((chunk) => ({
+          texto: chunk.texto,
+          chunkId: chunk.id,
+          sectionId: chunk.sectionId,
+          ancoraCfi: chunk.ancoraCfi,
+        }));
       }
     }
 
     const secao = await manager.findOneBy(Section, {
       id: questao.conjunto!.sectionId,
     });
-    return secao ? [secao.textoCompleto] : [];
+    return secao
+      ? [{ texto: secao.textoCompleto, chunkId: null, sectionId: secao.id, ancoraCfi: null }]
+      : [];
   }
 
   private exigirAberta(tentativa: Attempt): void {
@@ -380,6 +403,7 @@ export class TentativasService {
         tipo: passo.tipo,
         conteudo: passo.conteudo,
         criadoEm: passo.criadoEm,
+        chunksMostrados: passo.chunksMostrados ?? [],
       })),
     };
   }

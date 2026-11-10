@@ -85,7 +85,35 @@ export class TelemetryService {
         total: fichamentos.total,
         comEdicaoDoAluno: fichamentos.comEdicaoDoAluno,
       },
+      ultimaSecaoLida: await this.ultimaSecaoLida(userId),
     };
+  }
+
+  /** Item 1.4: a seção com o evento "abriu" mais recente por `criadoEm` —
+   * não pela ordem em que os eventos chegaram no lote. */
+  private async ultimaSecaoLida(
+    userId: string,
+  ): Promise<{ sectionId: string; tituloSecao: string; livroId: string } | null> {
+    const linhas = (await this.dataSource.query(
+      `SELECT "sectionId"
+         FROM reading_events
+        WHERE "userId" = $1 AND tipo = 'abriu' AND "sectionId" IS NOT NULL
+        ORDER BY "criadoEm" DESC
+        LIMIT 1`,
+      [userId],
+    )) as Array<{ sectionId: string }>;
+
+    const ultima = linhas[0];
+    if (!ultima) {
+      return null;
+    }
+
+    const secao = await this.sectionsRepository.findOneBy({ id: ultima.sectionId });
+    if (!secao) {
+      return null;
+    }
+
+    return { sectionId: secao.id, tituloSecao: secao.titulo, livroId: secao.bookId };
   }
 
   private truncarAoSegundo(isoString: string): Date {

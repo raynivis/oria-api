@@ -5,7 +5,8 @@ export type PapelLlm =
   | 'questions'
   | 'hint'
   | 'avaliacao'
-  | 'dialogue';
+  | 'dialogue'
+  | 'vocabulario';
 
 export interface MensagemChat {
   role: 'system' | 'user';

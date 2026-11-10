@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -51,5 +52,17 @@ export class FichamentosController {
     @UsuarioAtual() usuarioAtual: UsuarioAutenticado,
   ): Promise<void> {
     return this.fichamentosService.remover(usuarioAtual.id, id);
+  }
+
+  /** Item 2.9 (correção de usabilidade): exporta só esta ficha, ao lado do
+   * exportador em massa já existente em `GET /me/fichamentos/exportar`. */
+  @Get(':id/exportar')
+  @Header('Content-Type', 'text/markdown; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="fichamento.md"')
+  exportar(
+    @Param('id') id: string,
+    @UsuarioAtual() usuarioAtual: UsuarioAutenticado,
+  ): Promise<string> {
+    return this.fichamentosService.exportarMarkdownUnico(usuarioAtual.id, id);
   }
 }

@@ -10,4 +10,7 @@ export class FichamentoResumoDto {
   origemVersaoAtual: OrigemFichamentoVersao;
   editado: boolean;
   atualizadoEm: Date;
+  /** Item 2.6 (correção de usabilidade): para distinguir fichas na listagem. */
+  criadoEm: Date;
+  trechoPreview: string | null;
 }

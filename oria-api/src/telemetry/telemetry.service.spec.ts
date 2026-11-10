@@ -107,4 +107,47 @@ describe('TelemetryService', () => {
       expect(linhas[0].sectionId).toBeNull();
     });
   });
+
+  describe('progresso — ultimaSecaoLida (item 1.4)', () => {
+    function criarSectionsRepositoryComSecao(secao: { id: string; titulo: string; bookId: string } | null) {
+      return { findOneBy: jest.fn().mockResolvedValue(secao) } as unknown as Repository<Section>;
+    }
+
+    it('sem nenhum evento "abriu", devolve null', async () => {
+      const { dataSource } = criarDataSource([]);
+      (dataSource.query as jest.Mock)
+        .mockResolvedValueOnce([{ n: 0 }])
+        .mockResolvedValueOnce([{ total: 0, comEdicaoDoAluno: 0 }])
+        .mockResolvedValueOnce([]);
+      const service = new TelemetryService(dataSource, criarSectionsRepositoryComSecao(null));
+
+      const resultado = await service.progresso('aluno-1');
+
+      expect(resultado.ultimaSecaoLida).toBeNull();
+    });
+
+    it('a seção do evento "abriu" mais recente por criadoEm vence', async () => {
+      const { dataSource } = criarDataSource([]);
+      (dataSource.query as jest.Mock)
+        .mockResolvedValueOnce([{ n: 2 }])
+        .mockResolvedValueOnce([{ total: 0, comEdicaoDoAluno: 0 }])
+        .mockResolvedValueOnce([{ sectionId: SECAO_ID }]);
+      const sectionsRepository = criarSectionsRepositoryComSecao({
+        id: SECAO_ID,
+        titulo: 'Seção mais recente',
+        bookId: 'livro-1',
+      });
+      const service = new TelemetryService(dataSource, sectionsRepository);
+
+      const resultado = await service.progresso('aluno-1');
+
+      expect(resultado.ultimaSecaoLida).toEqual({
+        sectionId: SECAO_ID,
+        tituloSecao: 'Seção mais recente',
+        livroId: 'livro-1',
+      });
+      const [sql] = (dataSource.query as jest.Mock).mock.calls[2];
+      expect(sql).toMatch(/ORDER BY "criadoEm" DESC/);
+    });
+  });
 });

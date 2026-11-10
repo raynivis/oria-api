@@ -4,7 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { Chunk } from '../catalog/entities/chunk.entity';
 import { Section } from '../catalog/entities/section.entity';
 import { ConceitosService } from './conceitos.service';
@@ -45,9 +45,13 @@ describe('QuestoesService.gerarConjunto', () => {
     manager: EntityManager;
     conjuntoSalvo?: unknown;
     attemptsRepository?: Partial<Repository<Attempt>>;
+    secaoAnteriorLida?: { id: string; titulo: string; textoCompleto: string } | null;
+    chunksRepository?: Partial<Repository<Chunk>>;
   }) {
     const dataSource = {
       transaction: jest.fn((callback: (m: EntityManager) => unknown) => callback(opts.manager)),
+      // Item 3.5: sem seção anterior por padrão — cada teste de 3.5 sobrescreve.
+      query: jest.fn().mockResolvedValue(opts.secaoAnteriorLida ? [opts.secaoAnteriorLida] : []),
     } as unknown as DataSource;
     const conceitosService = {
       listarDaSecao: jest.fn().mockResolvedValue(CONCEITOS_DA_SECAO),
@@ -58,11 +62,13 @@ describe('QuestoesService.gerarConjunto', () => {
         id: SECTION_ID,
         titulo: 'Seção',
         textoCompleto: 'texto',
+        bookId: 'livro-1',
+        ordem: 3,
       }),
     } as unknown as Repository<Section>;
-    const chunksRepository = {
+    const chunksRepository = (opts.chunksRepository ?? {
       find: jest.fn().mockResolvedValue([]),
-    } as unknown as Repository<Chunk>;
+    }) as unknown as Repository<Chunk>;
     const conjuntosRepository = {
       findOne: jest.fn().mockResolvedValue(
         opts.conjuntoSalvo ?? {
@@ -214,6 +220,62 @@ describe('QuestoesService.gerarConjunto', () => {
     await expect(
       service.gerarConjunto('user-1', SECTION_ID, ['id-de-outra-secao']),
     ).rejects.toThrow(BadRequestException);
+  });
+
+  describe('questão de ligação entre capítulos (item 3.5)', () => {
+    it('sem seção anterior lida (ex.: primeira seção), secaoAnterior é nulo e não há erro', async () => {
+      const { manager } = criarManagerFalso();
+      const llmService = {
+        completar: jest.fn().mockResolvedValue({
+          questoes: [
+            { enunciado: 'P1', respostaReferencia: 'r', conceitoIds: [CONCEITO_A], trechosFonte: [] },
+          ],
+        }),
+      };
+      const service = montarServico({ llmService, manager, secaoAnteriorLida: null });
+
+      await service.gerarConjunto('user-1', SECTION_ID);
+
+      expect(llmService.completar).toHaveBeenCalledWith(
+        'questions',
+        expect.objectContaining({ secaoAnterior: null }),
+        expect.anything(),
+      );
+    });
+
+    it('com seção anterior lida, passa secaoAnterior ao prompt e busca chunks das duas seções', async () => {
+      const { manager } = criarManagerFalso();
+      const secaoAnterior = { id: 'secao-anterior', titulo: 'Seção anterior', textoCompleto: 'texto anterior' };
+      const llmService = {
+        completar: jest.fn().mockResolvedValue({
+          questoes: [
+            { enunciado: 'P1', respostaReferencia: 'r', conceitoIds: [CONCEITO_A], trechosFonte: [] },
+          ],
+        }),
+      };
+      const chunksRepository = { find: jest.fn().mockResolvedValue([]) } as unknown as Repository<Chunk>;
+      const service = montarServico({
+        llmService,
+        manager,
+        secaoAnteriorLida: secaoAnterior,
+        chunksRepository,
+      });
+
+      await service.gerarConjunto('user-1', SECTION_ID);
+
+      expect(llmService.completar).toHaveBeenCalledWith(
+        'questions',
+        expect.objectContaining({
+          secaoAnterior: { titulo: 'Seção anterior', texto: 'texto anterior' },
+        }),
+        expect.anything(),
+      );
+      expect(chunksRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { sectionId: In([SECTION_ID, 'secao-anterior']) },
+        }),
+      );
+    });
   });
 });
 

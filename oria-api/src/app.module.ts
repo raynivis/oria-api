@@ -18,6 +18,7 @@ import { QueueModule } from './queue/queue.module';
 import { RetrievalModule } from './retrieval/retrieval.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { UsersModule } from './users/users.module';
+import { VocabularioModule } from './vocabulario/vocabulario.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { UsersModule } from './users/users.module';
     DialogueModule,
     MetacognicaoModule,
     ValidacaoModule,
+    VocabularioModule,
   ],
   providers: [
     {

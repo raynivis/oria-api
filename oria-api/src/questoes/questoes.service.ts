@@ -72,8 +72,19 @@ export class QuestoesService {
       );
     }
 
+    // Item 3.5 (correção de usabilidade): a seção anterior do mesmo livro que
+    // o aluno mais recentemente abriu — não a "mais relacionada", que
+    // exigiria infraestrutura de similaridade entre seções que não existe.
+    // `null` quando o aluno ainda não leu nenhuma seção anterior (ex.:
+    // primeira seção do livro) — a exigência de questão de ligação é omitida
+    // nesse caso, não forçada.
+    const secaoAnteriorLida = await this.buscarSecaoAnteriorLida(userId, secao);
+
+    const idsSecoesParaChunks = secaoAnteriorLida
+      ? [sectionId, secaoAnteriorLida.id]
+      : [sectionId];
     const chunks = await this.chunksRepository.find({
-      where: { sectionId },
+      where: { sectionId: In(idsSecoesParaChunks) },
       order: { ordem: 'ASC' },
     });
 
@@ -88,6 +99,9 @@ export class QuestoesService {
           descricaoCurta: c.descricaoCurta,
         })),
         quantidade: QUANTIDADE_DE_QUESTOES,
+        secaoAnterior: secaoAnteriorLida
+          ? { titulo: secaoAnteriorLida.titulo, texto: secaoAnteriorLida.textoCompleto }
+          : null,
       },
       schemaQuestoes,
     );
@@ -258,6 +272,29 @@ export class QuestoesService {
           }),
       };
     });
+  }
+
+  /** Item 3.5: a seção anterior do mesmo livro com o evento "abriu" mais
+   * recente desse aluno — reaproveita o que a telemetria já registra, sem
+   * infraestrutura nova. */
+  private async buscarSecaoAnteriorLida(
+    userId: string,
+    secaoAtual: Section,
+  ): Promise<{ id: string; titulo: string; textoCompleto: string } | null> {
+    const [linha] = (await this.dataSource.query(
+      `SELECT s.id, s.titulo, s."textoCompleto"
+         FROM reading_events re
+         JOIN sections s ON s.id = re."sectionId"
+        WHERE re."userId" = $1
+          AND re.tipo = 'abriu'
+          AND s."bookId" = $2
+          AND s.ordem < $3
+        ORDER BY re."criadoEm" DESC
+        LIMIT 1`,
+      [userId, secaoAtual.bookId, secaoAtual.ordem],
+    )) as Array<{ id: string; titulo: string; textoCompleto: string }>;
+
+    return linha ?? null;
   }
 
   /** Só vincula trecho a chunk se o texto do trecho estiver de fato num chunk da seção. */

@@ -9,6 +9,11 @@ import { Chunk } from '../catalog/entities/chunk.entity';
 export interface OpcoesBusca {
   limiar?: number;
   topK?: number;
+  /** Item 1.1 (correção de usabilidade): último recurso antes de recusar —
+   * ignora o limite "só a seção atual e as anteriores" e busca no livro
+   * inteiro. Nunca usado por padrão; quem chama decide explicitamente,
+   * depois de a busca restrita já ter vindo vazia. */
+  ignorarLimiteDeOrdem?: boolean;
 }
 
 export interface ChunkRecuperado {
@@ -63,18 +68,35 @@ export class RetrievalService {
     const vetorConsulta = await this.embeddingsService.embedQuery(consulta);
     const vetorLiteral = `[${vetorConsulta.join(',')}]`;
 
-    const linhas: LinhaBusca[] = await this.chunksRepository.query(
-      `SELECT c.id AS "chunkId", c."sectionId", c.texto, c."ancoraCfi",
-              (1 - (c.embedding <=> $1::vector))::float8 AS score
-       FROM chunks c
-       JOIN sections s ON s.id = c."sectionId"
-       WHERE s."bookId" = $2
-         AND s.ordem <= $3
-         AND (1 - (c.embedding <=> $1::vector)) >= $4
-       ORDER BY score DESC
-       LIMIT $5`,
-      [vetorLiteral, secaoAtual.bookId, secaoAtual.ordem, limiar, topK],
-    );
+    // Item 1.1: a restrição "s.ordem <= $3" só é relaxada quando o chamador
+    // pede explicitamente (`ignorarLimiteDeOrdem`), como último recurso antes
+    // de recusar — a regra "nunca ao livro inteiro" continua valendo por
+    // padrão para toda chamada que não passar essa opção (inclusive a
+    // validação, que nunca passa).
+    const linhas: LinhaBusca[] = opcoes?.ignorarLimiteDeOrdem
+      ? await this.chunksRepository.query(
+          `SELECT c.id AS "chunkId", c."sectionId", c.texto, c."ancoraCfi",
+                  (1 - (c.embedding <=> $1::vector))::float8 AS score
+           FROM chunks c
+           JOIN sections s ON s.id = c."sectionId"
+           WHERE s."bookId" = $2
+             AND (1 - (c.embedding <=> $1::vector)) >= $3
+           ORDER BY score DESC
+           LIMIT $4`,
+          [vetorLiteral, secaoAtual.bookId, limiar, topK],
+        )
+      : await this.chunksRepository.query(
+          `SELECT c.id AS "chunkId", c."sectionId", c.texto, c."ancoraCfi",
+                  (1 - (c.embedding <=> $1::vector))::float8 AS score
+           FROM chunks c
+           JOIN sections s ON s.id = c."sectionId"
+           WHERE s."bookId" = $2
+             AND s.ordem <= $3
+             AND (1 - (c.embedding <=> $1::vector)) >= $4
+           ORDER BY score DESC
+           LIMIT $5`,
+          [vetorLiteral, secaoAtual.bookId, secaoAtual.ordem, limiar, topK],
+        );
 
     return linhas.map((linha) => ({
       chunkId: linha.chunkId,

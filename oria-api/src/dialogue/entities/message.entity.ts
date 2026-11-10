@@ -7,6 +7,7 @@ import {
   ManyToOne,
   PrimaryColumn,
 } from 'typeorm';
+import type { CitacaoPersistida, SugestaoRecusa } from '../dialogue.types';
 import { Session } from './session.entity';
 
 export type PapelMensagem = 'aluno' | 'tutora';
@@ -32,6 +33,17 @@ export class Message {
 
   @Column('uuid', { array: true, default: () => "'{}'" })
   chunksCitados: string[];
+
+  /** Item 1.11: forma rica da mesma citação — seção de origem + posição,
+   * para navegação. Aditivo a `chunksCitados`, que continua existindo. */
+  @Column('jsonb', { default: () => "'[]'" })
+  citacoes: CitacaoPersistida[];
+
+  /** Item 1.1: sugestões acionáveis quando a mensagem é uma recusa sem base
+   * nenhuma encontrada (nem na seção, nem no livro inteiro). Vazio em toda
+   * mensagem que não for essa recusa. */
+  @Column('jsonb', { default: () => "'[]'" })
+  sugestoes: SugestaoRecusa[];
 
   /** Só preenchido nas mensagens da tutora: a mensagem do aluno não passa pela recuperação. */
   @Column({ type: 'boolean', nullable: true })

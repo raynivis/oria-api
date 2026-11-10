@@ -3,11 +3,16 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   OneToMany,
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Section } from '../../catalog/entities/section.entity';
 import { FichamentoVersao } from './fichamento-versao.entity';
+
+export type StatusGeracaoFichamento = 'pendente' | 'pronto' | 'erro';
 
 /**
  * `trechoCfi` nulo = fichamento da seção inteira. Não nulo = ficha ancorada
@@ -29,8 +34,29 @@ export class Fichamento {
   @Column('uuid')
   sectionId: string;
 
+  /** Item 2.4 (correção de usabilidade): a `@ManyToOne` é só para carregar
+   * título da seção/livro sem um segundo `findOne` manual — a FK já existia
+   * no banco desde a migração original, não precisou de uma nova. */
+  @ManyToOne(() => Section)
+  @JoinColumn({ name: 'sectionId' })
+  secao?: Section;
+
   @Column('text', { nullable: true })
   trechoCfi?: string | null;
+
+  /** Item 2.4: o trecho original selecionado pelo aluno, antes só usado para
+   * montar o prompt e descartado — agora persistido para a ficha carregar
+   * procedência completa. Nulo quando a ficha é da seção inteira. */
+  @Column('text', { nullable: true })
+  trechoTexto?: string | null;
+
+  /** Item 2.5: `'pronto'` por padrão para toda ficha já existente/gerada
+   * sincronamente — só fica `'pendente'`/`'erro'` no fluxo assíncrono novo. */
+  @Column({ type: 'varchar', default: 'pronto' })
+  statusGeracao: StatusGeracaoFichamento;
+
+  @Column('text', { nullable: true })
+  erroMensagem?: string | null;
 
   @CreateDateColumn()
   criadoEm: Date;

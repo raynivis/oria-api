@@ -8,6 +8,7 @@ import { AppModule } from './../src/app.module';
 import { configurarApp } from './../src/bootstrap';
 import { Book } from './../src/catalog/entities/book.entity';
 import { Section } from './../src/catalog/entities/section.entity';
+import { LlmPermanenteError, LlmTransientError } from './../src/llm/llm.exceptions';
 import { LlmService } from './../src/llm/llm.service';
 
 /**
@@ -18,12 +19,20 @@ import { LlmService } from './../src/llm/llm.service';
 class LlmFalso {
   chamadas: string[] = [];
   falharHintIntermediario = false;
+  /** Item 3.11 (e2e): quando definido, qualquer chamada lança este erro
+   * diretamente — simula o que `LlmService.completar` lançaria depois de
+   * classificar a falha, sem precisar do retry/classificação reais aqui. */
+  falharComErro?: Error;
 
   async completar(
     papel: string,
     variaveis: Record<string, any>,
   ): Promise<Record<string, unknown>> {
     this.chamadas.push(papel);
+
+    if (this.falharComErro) {
+      throw this.falharComErro;
+    }
 
     if (papel === 'concepts') {
       return {
@@ -247,6 +256,39 @@ describe('Fase 7 — questões e fluxo step-based (e2e)', () => {
       .expect(400);
   });
 
+  /**
+   * Item 3.8 (correção de usabilidade — verificação): o `ValidationPipe`
+   * global já rejeita `conteudo` vazio/ausente para `justificativa_aluno`
+   * antes do controller, então nenhum `AttemptStep` chega a ser criado com
+   * resposta vazia. Guarda de regressão para esse comportamento já existente.
+   */
+  it('[item 3.8] justificativa_aluno sem conteudo retorna 400, sem criar passo', async () => {
+    const antes = await http()
+      .get(`/api/v1/tentativas/${tentativaBAberta}`)
+      .set(autenticado(tokenAluno))
+      .expect(200);
+    const nPassosAntes = antes.body.nPassos;
+
+    await http()
+      .post(`/api/v1/tentativas/${tentativaBAberta}/passos`)
+      .set(autenticado(tokenAluno))
+      .send({ tipo: 'justificativa_aluno', conteudo: '' })
+      .expect(400);
+
+    await http()
+      .post(`/api/v1/tentativas/${tentativaBAberta}/passos`)
+      .set(autenticado(tokenAluno))
+      .send({ tipo: 'justificativa_aluno' })
+      .expect(400);
+
+    const depois = await http()
+      .get(`/api/v1/tentativas/${tentativaBAberta}`)
+      .set(autenticado(tokenAluno))
+      .expect(200);
+    expect(depois.body.nPassos).toBe(nPassosAntes);
+    expect(depois.body.passos).toHaveLength(antes.body.passos.length);
+  });
+
   it('terceiro passo: justificativa insuficiente gera dica localizada, e a resolução continua bloqueada', async () => {
     const resposta = await http()
       .post(`/api/v1/tentativas/${tentativaBAberta}/passos`)
@@ -419,5 +461,52 @@ describe('Fase 7 — questões e fluxo step-based (e2e)', () => {
       .set(autenticado(tokenOutroAluno))
       .expect(200);
     expect(deOutroAluno.body).toEqual([]);
+  });
+
+  describe('item 3.11 — erros estruturados do LLM', () => {
+    afterEach(() => {
+      llmFalso.falharComErro = undefined;
+    });
+
+    it('LlmTransientError (papel hint, resolução via desistir) devolve 503 com codigo LLM_TRANSIENTE', async () => {
+      const inicio = await http()
+        .post(`/api/v1/questoes/${questaoA}/tentativas`)
+        .set(autenticado(tokenAluno))
+        .send({ resposta: 'resposta qualquer' })
+        .expect(201);
+
+      llmFalso.falharComErro = new LlmTransientError(
+        'Falha ao obter saída válida do papel "hint" após 2 tentativas: timeout',
+      );
+
+      const resposta = await http()
+        .post(`/api/v1/tentativas/${inicio.body.id}/desistir`)
+        .set(autenticado(tokenAluno))
+        .expect(503);
+
+      expect(resposta.body.codigo).toBe('LLM_TRANSIENTE');
+      expect(resposta.body.retryable).toBe(true);
+    });
+
+    it('LlmPermanenteError (papel avaliacao, ao registrar passo) devolve 502 com codigo LLM_PERMANENTE', async () => {
+      const inicio = await http()
+        .post(`/api/v1/questoes/${questaoA}/tentativas`)
+        .set(autenticado(tokenAluno))
+        .send({ resposta: 'resposta qualquer' })
+        .expect(201);
+
+      llmFalso.falharComErro = new LlmPermanenteError(
+        'Falha ao obter saída válida do papel "avaliacao" após 2 tentativas: schema inválido',
+      );
+
+      const resposta = await http()
+        .post(`/api/v1/tentativas/${inicio.body.id}/passos`)
+        .set(autenticado(tokenAluno))
+        .send({ tipo: 'justificativa_aluno', conteudo: 'minha justificativa' })
+        .expect(502);
+
+      expect(resposta.body.codigo).toBe('LLM_PERMANENTE');
+      expect(resposta.body.retryable).toBe(false);
+    });
   });
 });

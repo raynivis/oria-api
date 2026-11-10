@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { MensagemChat } from '../../llm/llm.types';
 import { BLOCO_IDENTIDADE_COMPARTILHADA } from '../shared/identidade';
 
-export const VERSAO = 1;
+export const VERSAO = 2;
 
 export const schemaQuestoes = z.object({
   questoes: z
@@ -29,14 +29,32 @@ export interface ConceitoParaQuestao {
   descricaoCurta: string;
 }
 
+export interface SecaoAnteriorParaQuestao {
+  titulo: string;
+  texto: string;
+}
+
 export interface VariaveisQuestoes {
   tituloSecao: string;
   texto: string;
   conceitos: ConceitoParaQuestao[];
   quantidade: number;
+  /** Item 3.5 (correção de usabilidade): seção anterior já lida pelo aluno,
+   * para exigir ao menos uma questão de ligação entre capítulos. `null`/ausente
+   * quando o aluno ainda não leu nenhuma seção anterior do livro (ex.: primeira
+   * seção) — nesse caso a exigência de ligação é omitida, não forçada. */
+  secaoAnterior?: SecaoAnteriorParaQuestao | null;
 }
 
-const SISTEMA = `${BLOCO_IDENTIDADE_COMPARTILHADA}
+function montarSistema(temSecaoAnterior: boolean): string {
+  const exigenciaDeLigacao = temSecaoAnterior
+    ? `\n\nAlém disso, ao menos uma das questões TEM que exigir que o estudante
+relacione a seção atual com a seção anterior fornecida — algo que só se
+responde lembrando as duas, não só a atual. Essa questão também precisa
+indicar trechos de origem das duas seções em "trechosFonte".`
+    : '';
+
+  return `${BLOCO_IDENTIDADE_COMPARTILHADA}
 
 Gere questões de resposta aberta sobre a seção.
 
@@ -53,7 +71,7 @@ Para cada questão, escreva também uma resposta de referência. Ela não será
 mostrada ao estudante durante as tentativas, apenas na resolução final.
 
 Evite perguntas que comecem com "o que é". Prefira "por que", "como se relaciona
-com", "em que situação".
+com", "em que situação".${exigenciaDeLigacao}
 
 Responda só com um objeto JSON, sem nenhum texto fora dele, exatamente neste
 formato:
@@ -67,21 +85,27 @@ formato:
     }
   ]
 }`;
+}
 
 export function montarMensagens(variaveis: VariaveisQuestoes): MensagemChat[] {
   const listaConceitos = variaveis.conceitos
     .map((c) => `- id ${c.id}: ${c.nome} — ${c.descricaoCurta}`)
     .join('\n');
 
+  const blocoSecaoAnterior = variaveis.secaoAnterior
+    ? `\n\nSeção anterior já lida pelo aluno: ${variaveis.secaoAnterior.titulo}\n` +
+      `Texto da seção anterior:\n${variaveis.secaoAnterior.texto}`
+    : '';
+
   return [
-    { role: 'system', content: SISTEMA },
+    { role: 'system', content: montarSistema(Boolean(variaveis.secaoAnterior)) },
     {
       role: 'user',
       content:
         `Seção: ${variaveis.tituloSecao}\n` +
         `Quantidade de questões: ${variaveis.quantidade}\n\n` +
         `Conceitos da seção:\n${listaConceitos}\n\n` +
-        `Texto:\n${variaveis.texto}`,
+        `Texto:\n${variaveis.texto}${blocoSecaoAnterior}`,
     },
   ];
 }

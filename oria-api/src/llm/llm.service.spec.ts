@@ -1,9 +1,11 @@
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
+import { HttpStatus } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { z } from 'zod';
 import { LlmService } from './llm.service';
 import { LlmCall } from './entities/llm-call.entity';
+import { LlmPermanenteError, LlmTransientError } from './llm.exceptions';
 import { PapelLlm } from './llm.types';
 
 jest.mock('axios');
@@ -36,7 +38,21 @@ function respostaOpenRouter(conteudo: string, usage = { prompt_tokens: 10, compl
 
 const schemaTeste = z.object({ ok: z.boolean() });
 
+function erroAxios(status?: number) {
+  return {
+    isAxiosError: true,
+    message: `erro http ${status ?? 'sem resposta'}`,
+    response: status === undefined ? undefined : { status },
+  };
+}
+
 describe('LlmService', () => {
+  beforeEach(() => {
+    (axiosMock.isAxiosError as unknown as jest.Mock).mockImplementation(
+      (erro: unknown) => Boolean(erro && typeof erro === 'object' && (erro as { isAxiosError?: boolean }).isAxiosError),
+    );
+  });
+
   afterEach(() => {
     jest.clearAllMocks();
   });
@@ -99,6 +115,81 @@ describe('LlmService', () => {
     expect(axiosMock.post).toHaveBeenCalledTimes(2);
     expect(linhasSalvas).toHaveLength(2);
     expect(linhasSalvas.every((linha) => linha.sucesso === false)).toBe(true);
+  });
+
+  describe('classificação de erro ao esgotar as tentativas (item 3.11)', () => {
+    it('falha de schema persistente lança LlmPermanenteError', async () => {
+      axiosMock.post.mockResolvedValue(respostaOpenRouter('{"ok": "nunca é booleano"}'));
+      const { repositorio } = criarRepositorioFalso();
+      const service = new LlmService(criarConfigService(), repositorio);
+
+      const promessa = service.completar(
+        'panorama',
+        { tituloLivro: 'L', tituloSecao: 'S', textoSecao: 'T' },
+        schemaTeste,
+      );
+
+      await expect(promessa).rejects.toBeInstanceOf(LlmPermanenteError);
+      await expect(promessa).rejects.toMatchObject({ status: HttpStatus.BAD_GATEWAY });
+    });
+
+    it('429 do OpenRouter esgotando as tentativas lança LlmTransientError (503)', async () => {
+      axiosMock.post.mockRejectedValue(erroAxios(429));
+      const { repositorio } = criarRepositorioFalso();
+      const service = new LlmService(criarConfigService(), repositorio);
+
+      const promessa = service.completar(
+        'panorama',
+        { tituloLivro: 'L', tituloSecao: 'S', textoSecao: 'T' },
+        schemaTeste,
+      );
+
+      await expect(promessa).rejects.toBeInstanceOf(LlmTransientError);
+      await expect(promessa).rejects.toMatchObject({ status: HttpStatus.SERVICE_UNAVAILABLE });
+    });
+
+    it('timeout (sem resposta) esgotando as tentativas lança LlmTransientError', async () => {
+      axiosMock.post.mockRejectedValue(erroAxios(undefined));
+      const { repositorio } = criarRepositorioFalso();
+      const service = new LlmService(criarConfigService(), repositorio);
+
+      await expect(
+        service.completar(
+          'panorama',
+          { tituloLivro: 'L', tituloSecao: 'S', textoSecao: 'T' },
+          schemaTeste,
+        ),
+      ).rejects.toBeInstanceOf(LlmTransientError);
+    });
+
+    it('400 do OpenRouter esgotando as tentativas lança LlmPermanenteError (502)', async () => {
+      axiosMock.post.mockRejectedValue(erroAxios(400));
+      const { repositorio } = criarRepositorioFalso();
+      const service = new LlmService(criarConfigService(), repositorio);
+
+      const promessa = service.completar(
+        'panorama',
+        { tituloLivro: 'L', tituloSecao: 'S', textoSecao: 'T' },
+        schemaTeste,
+      );
+
+      await expect(promessa).rejects.toBeInstanceOf(LlmPermanenteError);
+      await expect(promessa).rejects.toMatchObject({ status: HttpStatus.BAD_GATEWAY });
+    });
+
+    it('a mensagem de erro continua no formato "após 2 tentativas" independente da classificação', async () => {
+      axiosMock.post.mockRejectedValue(erroAxios(429));
+      const { repositorio } = criarRepositorioFalso();
+      const service = new LlmService(criarConfigService(), repositorio);
+
+      await expect(
+        service.completar(
+          'panorama',
+          { tituloLivro: 'L', tituloSecao: 'S', textoSecao: 'T' },
+          schemaTeste,
+        ),
+      ).rejects.toThrow(/após 2 tentativas/);
+    });
   });
 
   it('trata erro de rede como tentativa falha e registra o LlmCall mesmo assim', async () => {

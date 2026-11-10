@@ -14,12 +14,15 @@ import { FichamentosService } from './fichamentos.service';
 export class MeFichamentosController {
   constructor(private readonly fichamentosService: FichamentosService) {}
 
+  /** `sectionId`/`texto` (item 2.6): filtro exato por seção e busca textual. */
   @Get()
   listar(
     @UsuarioAtual() usuarioAtual: UsuarioAutenticado,
     @Query('livroId') livroId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('texto') texto?: string,
   ): Promise<FichamentoResumoDto[]> {
-    return this.fichamentosService.listarMeus(usuarioAtual.id, livroId);
+    return this.fichamentosService.listarMeus(usuarioAtual.id, livroId, sectionId, texto);
   }
 
   /**

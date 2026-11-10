@@ -8,6 +8,11 @@ import { MetacognicaoSaidaDto } from './dto/metacognicao-saida.dto';
 import { Metacognicao } from './entities/metacognicao.entity';
 import { montarObservacao, sinalizaIlusao } from './ilusao-conhecimento';
 
+interface SituacaoDeQuestoes {
+  temDados: boolean;
+  questoesFaltando: number;
+}
+
 @Injectable()
 export class MetacognicaoService {
   constructor(
@@ -48,7 +53,8 @@ export class MetacognicaoService {
       }),
     );
 
-    return this.paraSaida(metacognicao, secao.titulo);
+    const situacao = await this.situacaoDeQuestoesDaSecao(userId, sectionId);
+    return this.paraSaida(metacognicao, secao.titulo, situacao);
   }
 
   async listarDaSecao(userId: string, sectionId: string): Promise<MetacognicaoSaidaDto[]> {
@@ -60,7 +66,8 @@ export class MetacognicaoService {
       where: { userId, sectionId },
       order: { criadoEm: 'DESC' },
     });
-    return registros.map((r) => this.paraSaida(r, secao.titulo));
+    const situacao = await this.situacaoDeQuestoesDaSecao(userId, sectionId);
+    return registros.map((r) => this.paraSaida(r, secao.titulo, situacao));
   }
 
   async listarMinhas(userId: string): Promise<MetacognicaoSaidaDto[]> {
@@ -75,7 +82,15 @@ export class MetacognicaoService {
       id: In(registros.map((r) => r.sectionId)),
     });
     const titulos = new Map(secoes.map((s) => [s.id, s.titulo]));
-    return registros.map((r) => this.paraSaida(r, titulos.get(r.sectionId) ?? ''));
+
+    const situacoesPorSecao = new Map<string, SituacaoDeQuestoes>();
+    for (const sectionId of new Set(registros.map((r) => r.sectionId))) {
+      situacoesPorSecao.set(sectionId, await this.situacaoDeQuestoesDaSecao(userId, sectionId));
+    }
+
+    return registros.map((r) =>
+      this.paraSaida(r, titulos.get(r.sectionId) ?? '', situacoesPorSecao.get(r.sectionId)!),
+    );
   }
 
   /**
@@ -98,7 +113,55 @@ export class MetacognicaoService {
     return linha.media ?? 0;
   }
 
-  private paraSaida(metacognicao: Metacognicao, tituloSecao: string): MetacognicaoSaidaDto {
+  /**
+   * Itens 3.1/3.6: conta total e concluídas só na rodada (QuestionSet) mais
+   * recente da seção — uma rodada antiga já superada não deveria contar como
+   * "pendente". Sem nenhuma rodada gerada ainda, `temDados` é `false` e
+   * `questoesFaltando` é `0` (não há o que faltar, ainda não existe rodada).
+   */
+  private async situacaoDeQuestoesDaSecao(
+    userId: string,
+    sectionId: string,
+  ): Promise<SituacaoDeQuestoes> {
+    const [ultimoSet] = (await this.dataSource.query(
+      `SELECT id FROM question_sets
+        WHERE "userId" = $1 AND "sectionId" = $2
+        ORDER BY "criadoEm" DESC
+        LIMIT 1`,
+      [userId, sectionId],
+    )) as Array<{ id: string }>;
+
+    if (!ultimoSet) {
+      return { temDados: false, questoesFaltando: 0 };
+    }
+
+    const [contagem] = (await this.dataSource.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (
+                WHERE EXISTS (
+                  SELECT 1 FROM attempts a
+                   WHERE a."questionId" = q.id
+                     AND a."userId" = $2
+                     AND a.estado IN ('resolvida', 'abandonada')
+                )
+              )::int AS concluidas
+         FROM questions q
+        WHERE q."setId" = $1`,
+      [ultimoSet.id, userId],
+    )) as Array<{ total: number; concluidas: number }>;
+
+    const concluidas = contagem.concluidas;
+    return {
+      temDados: concluidas > 0,
+      questoesFaltando: Math.max(contagem.total - concluidas, 0),
+    };
+  }
+
+  private paraSaida(
+    metacognicao: Metacognicao,
+    tituloSecao: string,
+    situacao: SituacaoDeQuestoes,
+  ): MetacognicaoSaidaDto {
     return {
       id: metacognicao.id,
       sectionId: metacognicao.sectionId,
@@ -109,6 +172,8 @@ export class MetacognicaoService {
       observacaoIa: metacognicao.observacaoIa ?? null,
       sinalizouIlusao: metacognicao.sinalizouIlusao,
       criadoEm: metacognicao.criadoEm,
+      semDadosDeComparacao: !situacao.temDados,
+      questoesFaltando: situacao.questoesFaltando,
     };
   }
 }

@@ -63,9 +63,12 @@ describe('Fase 8 — diálogo com stream (e2e)', () => {
   let llmFalso: LlmFalso;
   let tokenAluno: string;
   let tokenOutro: string;
+  let secaoZeroId: string;
   let secaoUmId: string;
   let secaoDoisId: string;
+  let secaoGlossarioId: string;
   let chunkEvaporacaoId: string;
+  let chunkFotossinteseId: string;
 
   const http = () => request(app.getHttpServer());
   const autenticado = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -92,6 +95,14 @@ describe('Fase 8 — diálogo com stream (e2e)', () => {
       status: 'pronto',
     });
     const secoes = dataSource.getRepository(Section);
+    const secaoZero = await secoes.save({
+      bookId: livro.id,
+      ordem: 0,
+      titulo: 'Seção Zero',
+      nivel: 1,
+      href: 'zero.xhtml',
+      textoCompleto: 'texto da seção zero, sem nenhum chunk',
+    });
     const secaoUm = await secoes.save({
       bookId: livro.id,
       ordem: 1,
@@ -108,8 +119,18 @@ describe('Fase 8 — diálogo com stream (e2e)', () => {
       href: 'dois.xhtml',
       textoCompleto: 'texto da seção dois',
     });
+    const secaoGlossario = await secoes.save({
+      bookId: livro.id,
+      ordem: 3,
+      titulo: 'Glossário',
+      nivel: 1,
+      href: 'glossario.xhtml',
+      textoCompleto: 'Lista de termos do livro.',
+    });
+    secaoZeroId = secaoZero.id;
     secaoUmId = secaoUm.id;
     secaoDoisId = secaoDois.id;
+    secaoGlossarioId = secaoGlossario.id;
 
     const textosSecaoUm = [
       'A evaporação transforma a água líquida em vapor, que sobe para a atmosfera.',
@@ -131,7 +152,7 @@ describe('Fase 8 — diálogo com stream (e2e)', () => {
       })),
     );
     chunkEvaporacaoId = primeiro.id;
-    await chunks.save(
+    const [fotossintese] = await chunks.save(
       textosSecaoDois.map((texto) => ({
         sectionId: secaoDois.id,
         ordem: 0,
@@ -141,6 +162,7 @@ describe('Fase 8 — diálogo com stream (e2e)', () => {
         tokens: 12,
       })),
     );
+    chunkFotossinteseId = fotossintese.id;
 
     const registro = await http()
       .post('/api/v1/auth/registro')
@@ -203,9 +225,18 @@ describe('Fase 8 — diálogo com stream (e2e)', () => {
     expect(tutora.encontrouBase).toBe(true);
     expect(tutora.chunksCitados).toEqual([chunkEvaporacaoId]);
     expect(sessao.body.mensagens.map((m: { papel: string }) => m.papel)).toEqual(['aluno', 'tutora']);
+
+    // Item 1.11: a mesma citação também fica persistida em forma rica.
+    expect(tutora.citacoes).toHaveLength(1);
+    expect(tutora.citacoes[0]).toMatchObject({
+      chunkId: chunkEvaporacaoId,
+      sectionId: secaoUmId,
+      ancoraCfi: 'epubcfi(/6/4!/4/2)',
+      secaoTitulo: 'Seção Um',
+    });
   });
 
-  it('pergunta fora do material: recusa explícita, sem chamar o LLM', async () => {
+  it('pergunta fora do material: recusa explícita, com sugestões, sem chamar o LLM', async () => {
     const chamadasAntes = llmFalso.chamadas;
 
     const resposta = await http()
@@ -217,8 +248,49 @@ describe('Fase 8 — diálogo com stream (e2e)', () => {
     const lista = eventos(resposta.text);
     expect(lista.some((e) => e.evento === 'citacao')).toBe(false);
     expect(lista.find((e) => e.evento === 'token')!.dados.texto).toBe(RECUSA_SEM_BASE);
-    expect(lista.at(-1)!.dados.encontrouBase).toBe(false);
+    const fim = lista.at(-1)!;
+    expect(fim.dados.encontrouBase).toBe(false);
     expect(llmFalso.chamadas).toBe(chamadasAntes);
+
+    // Item 1.1: sugestões acionáveis, incluindo o glossário do livro por título.
+    const sugestoes = fim.dados.sugestoes as Array<{ tipo: string; sectionId?: string }>;
+    expect(sugestoes.map((s) => s.tipo)).toEqual(
+      expect.arrayContaining(['buscar_outras_secoes', 'abrir_glossario', 'inferir_pelo_contexto']),
+    );
+    const sugestaoGlossario = sugestoes.find((s) => s.tipo === 'abrir_glossario')!;
+    expect(sugestaoGlossario.sectionId).toBe(secaoGlossarioId);
+
+    const sessao = await http()
+      .get(`/api/v1/sessoes/${sessaoId}`)
+      .set(autenticado(tokenAluno))
+      .expect(200);
+    const tutora = sessao.body.mensagens.filter((m: { papel: string }) => m.papel === 'tutora').at(-1);
+    expect(tutora.citacoes).toEqual([]);
+  });
+
+  it('pergunta cuja única resposta está numa seção posterior: fallback no livro inteiro encontra e cita', async () => {
+    // Sessão numa seção sem nenhum chunk (ordem 0): a busca restrita (só
+    // essa seção, já que não há nenhuma anterior) vem garantidamente vazia,
+    // forçando o fallback do item 1.1 a buscar no livro inteiro.
+    const sessaoZero = await http()
+      .post('/api/v1/sessoes')
+      .set(autenticado(tokenAluno))
+      .send({ secaoId: secaoZeroId })
+      .expect(201);
+
+    const resposta = await http()
+      .post(`/api/v1/sessoes/${sessaoZero.body.id}/mensagens`)
+      .set(autenticado(tokenAluno))
+      .send({ conteudo: 'Como a fotossíntese converte luz solar em energia?' })
+      .expect(200);
+
+    const lista = eventos(resposta.text);
+    expect(lista.find((e) => e.evento === 'token')!.dados.texto).not.toBe(RECUSA_SEM_BASE);
+    const citacao = lista.find((e) => e.evento === 'citacao')!;
+    expect(citacao.dados.chunkId).toBe(chunkFotossinteseId);
+    expect(citacao.dados.sectionId).toBe(secaoDoisId);
+    expect(citacao.dados.secaoTitulo).toBe('Seção Dois');
+    expect(lista.at(-1)!.dados.encontrouBase).toBe(true);
   });
 
   it('pergunta que liga a um capítulo anterior cita chunk de seção já lida', async () => {
