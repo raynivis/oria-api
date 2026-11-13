@@ -2,6 +2,8 @@
 
 Extração só de leitura, feita em 2026-11-10, sobre o banco de desenvolvimento local (`docker compose exec db psql`, mesma instância usada pela bateria) e sobre o repositório em `feat/correcao-usabilidade`. Nenhuma chamada a LLM foi feita para produzir este documento; nenhum arquivo do repositório foi alterado além deste `.md`. Todos os valores abaixo vêm de registro existente (`validacao_execucoes`, `validacao_saidas`, `validacao_tarefas`, `validacao_codigos_cegos`, `llm_calls`, `chunks`/`sections`, e o código-fonte das versões de prompt efetivamente usadas). Onde o dado não existe, está escrito "não registrado" — nenhum valor foi estimado ou derivado por aproximação.
 
+**Segunda extração:** as seções 8, 9 e 10 abaixo, e o índice de entradas/saídas em `validacao/saidas-brutas/`, foram produzidas em 2026-11-13, sobre o mesmo banco de desenvolvimento, na branch `feat/avaliacao` (as seções 1 a 7 acima continuam da extração original de 2026-11-10, em `feat/correcao-usabilidade`, e não foram reprocessadas, recalculadas nem corrigidas nesta segunda passagem).
+
 ## 1. Chave de cegamento e catálogo de tarefas
 
 60 saídas, execução única `avaliacao-a` (id `32b5cef2-1e04-4145-a62e-d7d0b52bc34d`).
@@ -250,3 +252,391 @@ O campo que guarda a entrada enviada é `validacao_saidas.entradaCompleta` (text
 7. **`gabarito` das 30 tarefas está preenchido** (nenhum nulo/vazio) — não solicitado por nenhuma seção acima, registrado aqui só porque foi verificado de passagem ao consultar `validacao_tarefas`.
 
 8. **`llm_calls` guarda tráfego de outros papéis do produto além desta avaliação** (`avaliacao`=16, `concepts`=16, `hint`=31, `panorama`=47 linhas, nenhum deles pertencente ao desenho desta Avaliação A) — não é inconsistência, é o esperado de uma tabela única e cumulativa de evidência de pesquisa (regra 5 do CLAUDE.md), citado aqui só para justificar por que a correlação da observação 2 foi descartada.
+
+## 8. O que `llm_calls` guarda além de `validacao_saidas`
+
+A observação 2 já estabeleceu que `llm_calls` não tem FK para `validacao_saidas`
+nem para `validacao_tarefas`, e por isso `tentativas_ate_sucesso` não é
+recuperável com segurança — isso está encerrado e não foi reaberto aqui. A
+pergunta desta seção é outra: o que `llm_calls` guarda, por chamada, que
+`validacao_saidas` não guarda.
+
+**(a) Colunas de `llm_calls`** (lido direto do esquema, `\d llm_calls`):
+
+| Coluna | Tipo | Nulo |
+|---|---|---|
+| `id` | uuid (PK) | não |
+| `papel` | varchar | não |
+| `modelo` | varchar | não |
+| `promptVersao` | int | não |
+| `entradaCompleta` | text | não |
+| `saidaBruta` | text | não |
+| `temperatura` | numeric | sim |
+| `seed` | int | sim |
+| `provider` | varchar | sim |
+| `tokensIn` | int | não |
+| `tokensOut` | int | não |
+| `custo` | numeric | não |
+| `duracaoMs` | int | não |
+| `sucesso` | boolean | não |
+| `criadoEm` | timestamp sem fuso | não |
+
+**(b) Colunas sem equivalente em `validacao_saidas`:** `papel`, `temperatura`,
+`seed`, `provider`. `validacao_saidas` não tem nenhuma dessas quatro colunas.
+Com uma ressalva: `temperatura`, `seed` e `provider` **são** recuperáveis
+indiretamente para as 60 saídas desta execução, porque são constantes da
+execução inteira e estão em `validacao_execucoes` (seção 1 de
+`AUDITORIA-TABELAS.md`) — não estão em `validacao_saidas`, mas não são
+dados perdidos. `papel`, por outro lado, não tem equivalente em lugar
+nenhum do esquema de validação: não é uma coluna de `validacao_saidas`, de
+`validacao_tarefas` nem de `validacao_execucoes`. O valor usado na seção 2
+de `RESULTADOS-AVALIACAO-A.md` foi derivado da combinação
+(`condicao`, `tipo_tarefa`) pela lógica de `prepararChamada` em
+`gerar-bateria.ts` — uma leitura determinística do código-fonte, não um
+dado de banco.
+
+**(c) Chamadas de `llm_calls` dentro da janela da execução, com o mesmo
+modelo, por papel** — `modelo = 'nvidia/nemotron-3.5-lightning:free'` e
+`criadoEm` entre `2026-11-08 17:32:18` (`iniciadaEm`) e `2026-11-08
+19:50:04` (o `criadoEm` mais tardio entre as 60 saídas):
+
+| papel | linhas |
+|---|---|
+| `avaliacao` | 2 |
+| `baseline` | 66 |
+| `dialogue` | 44 |
+| `fichamento` | 20 |
+| `hint` | 12 |
+| `panorama` | 4 |
+| `questions` | 8 |
+| **total** | **156** |
+
+Estas 156 linhas não estão pareadas com as 60 saídas — a observação 2 já
+mostrou por que esse pareamento é ambíguo (o mesmo modelo é usado por
+`llm_calls` fora desta execução, inclusive antes de `iniciadaEm`, então
+mesmo restringindo à janela e ao modelo, `baseline` tem 66 linhas contra 30
+saídas de linha de base, `dialogue` tem 44 contra 20 saídas de pergunta com
+Oria, `fichamento` tem 20 contra 8, `questions` tem 8 contra 2 — mais linhas
+do que saídas em todos os quatro papéis da bateria, e três papéis inteiros
+que não pertencem a nenhuma tarefa desta avaliação (`avaliacao`, `hint`,
+`panorama`, 18 linhas no total) também caem dentro da mesma janela de
+tempo). Esta seção só informa o que existe; não estabelece correspondência
+entre essas linhas e nenhuma saída específica.
+
+## 9. Estado da tabela de pontuações (diagnóstico, sem execução)
+
+**NÃO FOI EXECUTADO NENHUM IMPORTADOR OU SCRIPT DE ESCRITA PARA PRODUZIR
+ESTA SEÇÃO.** Tudo abaixo vem da leitura do código de
+`scripts/validacao/importar-pontuacoes.ts`, `scripts/validacao/revelar.ts`,
+da entidade `Pontuacao`, e de uma leitura (sem escrita) dos arquivos
+`.xlsx` já presentes em `validacao/`.
+
+**(a) Formato de entrada esperado por `importar-pontuacoes.ts`:**
+- Arquivo `.xlsx` (lido via `ExcelJS.Workbook().xlsx.readFile`).
+- Precisa ter uma aba com o nome exato `"Pontuação"` — o script lança erro
+  se não encontrar (`planilha.getWorksheet('Pontuação')`).
+- Linha 1 é tratada como cabeçalho e ignorada.
+- Para cada linha seguinte, por **posição de coluna** (não por nome de
+  cabeçalho):
+  - coluna 1 (`getCell(1)`): `codigo` — string, obrigatória; uma linha com
+    essa célula vazia é tratada como fim da planilha e ignorada (permite
+    linhas em branco ao final).
+  - colunas 2 a 4: **não são lidas pelo importador** (no template gerado
+    por `exportar-planilha.ts` são "Saída", "Enunciado da tarefa" e
+    "Gabarito" — contexto para quem pontua, mas o importador as ignora).
+  - coluna 5 (`getCell(5)`): C1 — obrigatória, inteiro entre 0 e 2
+    (`lerNota` lança erro se não for).
+  - coluna 6: C2 — mesma regra.
+  - coluna 7: C3 — mesma regra.
+  - coluna 8: C4 — mesma regra.
+  - coluna 9: `nivelBloom` — opcional; vazio/falso vira `null`, senão
+    `Number(valor)`.
+  - coluna 10: `observacao` — opcional; vazio/falso vira `null`, senão
+    `String(valor)`.
+- `avaliador` (`'aluno' | 'orientador' | 'consenso'`) e a execução
+  (`execucaoId`) **não vêm do arquivo** — são passados por linha de
+  comando (`--avaliador=`, `--execucao=`), o mesmo valor aplicado a todas
+  as linhas da planilha naquela execução do script.
+- Ao final, o script exige que toda saída cegada da execução tenha
+  recebido uma linha na planilha — se faltar alguma, lança erro listando
+  os códigos faltantes, sem importar nada parcialmente (a falha é
+  tudo-ou-nada só para essa chamada do script; linhas já salvas em
+  chamadas anteriores do script, com outro avaliador, continuam valendo).
+
+**(b) Colunas de `validacao_pontuacoes`** (`src/validacao/entities/pontuacao.entity.ts`):
+
+| Coluna | Tipo | Nulo | Obrigatória para o importador gravar a linha |
+|---|---|---|---|
+| `id` | uuid (PK) | não | gerada automaticamente |
+| `saidaId` | uuid (FK → `validacao_saidas.id`) | não | sim (resolvida a partir do código, via `validacao_codigos_cegos`) |
+| `avaliador` | varchar | não | sim (vem do `--avaliador=`, não do arquivo) |
+| `c1`, `c2`, `c3`, `c4` | int | não | sim (cada uma, 0–2) |
+| `nivelBloom` | int | sim | não |
+| `observacao` | text | sim | não |
+| `criadoEm` | timestamp sem fuso | não | não (default `now()`, nunca passado explicitamente pelo script) |
+
+Índice único em (`saidaId`, `avaliador`): uma segunda importação para o
+mesmo avaliador e a mesma saída **atualiza** a linha existente
+(`pontuacoesRepository.update`), não duplica.
+
+**(c) Existe algum arquivo no repositório já nesse formato?** Não, nenhum
+arquivo pronto para importar diretamente.
+- `validacao/avaliacao-a-consensual.pdf` existe, mas é PDF — formato
+  errado por completo, o importador só lê `.xlsx`.
+- `validacao/planilha-aluno.xlsx` e `validacao/planilha-orientador.xlsx`
+  existem, têm a aba `"Pontuação"` com o nome certo e exatamente as 60
+  linhas na ordem certa (gerados por `exportar-planilha.ts`) — **mas as
+  colunas C1–C4 das 60 linhas estão vazias nos dois arquivos**, conferido
+  agora por leitura direta das células (0 de 60 linhas com C1 preenchido
+  em cada um). Ou seja, o formato está certo, os dados de nota não estão
+  neles.
+- Para importar o avaliador `consenso` (o que falta para `revelar.ts`
+  aceitar revelar pelo pipeline), seria preciso produzir um `.xlsx` novo
+  com: aba chamada `"Pontuação"`; linha 1 de cabeçalho (livre, é
+  ignorada); uma linha por código de A1 a A60, na coluna 1; C1–C4 nas
+  colunas 5–8, inteiros 0–2, vindos da consolidação que hoje está só no
+  PDF; opcionalmente nível de Bloom na coluna 9 e observação na coluna 10.
+  As colunas 2–4 podem ficar vazias (o importador não as lê), mas
+  preenchê-las com o conteúdo de `planilha-aluno.xlsx`/`-orientador.xlsx`
+  deixaria o arquivo final mais fácil de auditar a olho.
+
+**(d) O importador escreve em alguma tabela além de `validacao_pontuacoes`?
+Em especial, altera `revelado`?**
+
+Não. Lendo `importar-pontuacoes.ts` de ponta a ponta: as únicas operações
+de escrita são `pontuacoesRepository.update(...)` e
+`pontuacoesRepository.save(pontuacoesRepository.create(...))` — ambas só
+sobre `validacao_pontuacoes`. O script nunca importa `CodigoCego` para
+escrita (só o usa, em `codigosRepository.find`, para resolver
+`codigo → saidaId`, leitura). **Quem altera `revelado` é um script
+diferente, `revelar.ts`**, que: (i) exige que exista pontuação com
+`avaliador = 'consenso'` para todas as saídas da execução antes de fazer
+qualquer coisa — se faltar uma, lança erro e não altera nada; (ii) só
+então faz `codigosRepository.update({saidaId: In(...)}, {revelado: true})`
+nas saídas daquela execução. `importar-pontuacoes.ts` e `revelar.ts` nunca
+rodam dentro da mesma transação nem são chamados um pelo outro — são dois
+scripts `npm run` separados.
+
+Então, estritamente, **rodar `importar-pontuacoes.ts` agora não afeta
+`revelado`** — isso só aconteceria se, depois, alguém também rodasse
+`revelar.ts` com a execução já tendo consenso completo. Mas há um risco de
+ordem dos fatos mesmo sem chegar a `revelar.ts`: `validacao_pontuacoes.criadoEm`
+tem default `now()` e o script nunca passa esse campo explicitamente — uma
+importação feita hoje (ou em qualquer data futura) grava `criadoEm` com a
+data da importação, não a data em que a pontuação/consenso foi de fato
+fechada (o PDF consensual existe desde 2026-11-10). Qualquer leitura futura
+de `validacao_pontuacoes.criadoEm` leria essa data de importação como se
+fosse a data do trabalho de avaliação, o que não seria verdade.
+
+**Recomendação (diagnóstico, não executado):** se a autora quiser rodar o
+importador sobre estes dados, o script precisaria de um ajuste para aceitar
+a data real da consolidação (um `--data=` novo, por exemplo) e passá-la
+explicitamente em `dados.criadoEm` nos dois pontos de escrita, em vez de
+depender do default `now()` da coluna. Sem esse ajuste, `importar-pontuacoes.ts`
+não deveria ser executado sobre estes dados — não porque altere `revelado`
+(não altera), mas porque gravaria uma data de criação da pontuação que não
+corresponde à data real, deixando o banco sugerir uma ordem dos fatos
+diferente da que realmente ocorreu.
+
+## 10. Índice das entradas e saídas brutas
+
+As 60 saídas (entrada completa e saída bruta de `validacao_saidas`) estão
+indexadas em `validacao/saidas-brutas/`, um arquivo por código, `A1.md` a
+`A60.md`. Não entram no corpo deste documento por tamanho: só os tokens de
+saída das 60 somam cerca de 195 mil (seção 2); o conteúdo integral
+ultrapassaria 1 MB, o limite acima do qual o GitHub deixa de renderizar
+Markdown.
+
+**Por que a entrada é editada e a saída não:** não há licença para
+redistribuir o livro usado na avaliação. Em `entradaCompleta`, toda
+passagem de texto do livro — o texto integral da seção colado (tarefas de
+resumo e de bateria de questões), o trecho selecionado pela autora como
+alvo da tarefa (tarefas de ficha) e os trechos recuperados pela busca
+semântica (tarefas de pergunta com Oria) — foi substituída por um marcador
+`[TEXTO DO LIVRO REMOVIDO - <origem>, <n> caracteres, SHA-256 <hash>]`, com
+`<n>` = `string.length` (unidades UTF-16) e `<hash>` = SHA-256 sobre os
+bytes UTF-8 exatos do texto removido, antes de qualquer normalização. Tudo
+o mais na entrada — instruções de sistema, enunciados escritos pela
+autora, estrutura do JSON, numeração `[n]` dos trechos, aspas, ordem das
+chaves, acentuação — ficou literal. `saidaBruta` **não foi tocada em
+nenhuma saída**: é o objeto da avaliação (fidelidade ao material,
+cobertura, adequação pedagógica), não reprodução do livro, e inclui até os
+defeitos de grafia da própria geração (A28 perde acentos em parte do
+texto, inclusive no cabeçalho "Pontos de atencao" — ver observação 5 —
+e isso está preservado no arquivo tal como está no banco).
+
+Rótulo de origem usado, por caso (dois dos três já estavam especificados
+na tarefa; o do meio foi necessário porque o trecho de uma ficha não é
+nem "a seção integral colada" nem "um chunk recuperado por busca", é um
+trecho escolhido à mão pela autora como alvo da tarefa):
+- `seção integral: <título>` — resumo e bateria de questões (texto = seção completa).
+- `trecho selecionado (tarefa <id>), seção <título>` — ficha de trecho (texto = `enunciado` da tarefa, o trecho que a autora escolheu).
+- `trecho recuperado, seção <título>` — pergunta com Oria (texto = cada chunk devolvido pela busca semântica, um marcador por trecho numerado).
+
+### Tabela de índice
+
+| codigo | condicao | tipo_tarefa | secao | arquivo | bytes entrada | bytes saída | substituições na entrada |
+|---|---|---|---|---|---|---|---|
+| A1 | com Oria | pergunta de ligação | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A1.md` | 3779 | 56 | 6 |
+| A2 | com Oria | pergunta fora do ebook | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A2.md` | 2440 | 56 | 2 |
+| A3 | com Oria | resumo | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A3.md` | 2063 | 3421 | 1 |
+| A4 | linha de base | pergunta respondível | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A4.md` | 199 | 728 | 0 |
+| A5 | com Oria | pergunta fora do ebook | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A5.md` | 3202 | 41 | 6 |
+| A6 | linha de base | pergunta fora do ebook | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A6.md` | 219 | 3655 | 0 |
+| A7 | com Oria | pergunta fora do ebook | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A7.md` | 3508 | 56 | 6 |
+| A8 | linha de base | pergunta respondível | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A8.md` | 179 | 2149 | 0 |
+| A9 | com Oria | pergunta fora do ebook | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A9.md` | 3154 | 56 | 5 |
+| A10 | com Oria | pergunta respondível | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A10.md` | 2919 | 376 | 4 |
+| A11 | linha de base | pergunta respondível | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A11.md` | 199 | 255 | 0 |
+| A12 | com Oria | pergunta de ligação | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A12.md` | 3633 | 1627 | 6 |
+| A13 | com Oria | pergunta de ligação | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A13.md` | 3407 | 652 | 6 |
+| A14 | linha de base | pergunta respondível | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A14.md` | 194 | 1698 | 0 |
+| A15 | linha de base | pergunta de ligação | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A15.md` | 302 | 451 | 0 |
+| A16 | com Oria | ficha de trecho | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A16.md` | 2030 | 2120 | 1 |
+| A17 | linha de base | pergunta de ligação | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A17.md` | 305 | 1348 | 0 |
+| A18 | com Oria | pergunta respondível | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A18.md` | 3507 | 882 | 6 |
+| A19 | linha de base | bateria de questões | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A19.md` | 406 | 3873 | 1 |
+| A20 | linha de base | pergunta respondível | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A20.md` | 195 | 3195 | 0 |
+| A21 | linha de base | pergunta de ligação | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A21.md` | 247 | 1779 | 0 |
+| A22 | com Oria | pergunta respondível | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A22.md` | 3022 | 248 | 4 |
+| A23 | com Oria | ficha de trecho | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A23.md` | 2090 | 1400 | 1 |
+| A24 | com Oria | pergunta respondível | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A24.md` | 3433 | 1095 | 6 |
+| A25 | com Oria | pergunta respondível | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A25.md` | 3442 | 642 | 6 |
+| A26 | linha de base | resumo | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A26.md` | 435 | 4465 | 1 |
+| A27 | linha de base | pergunta respondível | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A27.md` | 185 | 2230 | 0 |
+| A28 | com Oria | ficha de trecho | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A28.md` | 2090 | 1830 | 1 |
+| A29 | linha de base | ficha de trecho | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A29.md` | 426 | 986 | 1 |
+| A30 | linha de base | resumo | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A30.md` | 405 | 8648 | 1 |
+| A31 | linha de base | pergunta fora do ebook | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A31.md` | 197 | 1059 | 0 |
+| A32 | com Oria | pergunta respondível | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A32.md` | 3407 | 1116 | 6 |
+| A33 | com Oria | bateria de questões | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A33.md` | 3735 | 5587 | 1 |
+| A34 | com Oria | ficha de trecho | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A34.md` | 2030 | 1998 | 1 |
+| A35 | linha de base | pergunta de ligação | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A35.md` | 398 | 1660 | 0 |
+| A36 | com Oria | bateria de questões | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A36.md` | 3782 | 8005 | 1 |
+| A37 | linha de base | pergunta respondível | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A37.md` | 191 | 225 | 0 |
+| A38 | linha de base | pergunta respondível | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A38.md` | 214 | 1791 | 0 |
+| A39 | com Oria | ficha de trecho | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A39.md` | 2030 | 944 | 1 |
+| A40 | com Oria | pergunta respondível | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A40.md` | 3531 | 530 | 6 |
+| A41 | com Oria | resumo | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A41.md` | 2003 | 3044 | 1 |
+| A42 | linha de base | ficha de trecho | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A42.md` | 456 | 1566 | 1 |
+| A43 | linha de base | pergunta respondível | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A43.md` | 190 | 1652 | 0 |
+| A44 | com Oria | pergunta respondível | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A44.md` | 2997 | 861 | 5 |
+| A45 | com Oria | pergunta respondível | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A45.md` | 3419 | 723 | 6 |
+| A46 | linha de base | pergunta respondível | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A46.md` | 205 | 1894 | 0 |
+| A47 | com Oria | pergunta respondível | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A47.md` | 3608 | 1073 | 6 |
+| A48 | com Oria | pergunta respondível | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A48.md` | 3576 | 56 | 6 |
+| A49 | linha de base | pergunta respondível | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A49.md` | 204 | 647 | 0 |
+| A50 | linha de base | bateria de questões | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A50.md` | 436 | 5258 | 1 |
+| A51 | linha de base | pergunta fora do ebook | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A51.md` | 214 | 3446 | 0 |
+| A52 | linha de base | ficha de trecho | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A52.md` | 426 | 1082 | 1 |
+| A53 | linha de base | ficha de trecho | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A53.md` | 456 | 1791 | 1 |
+| A54 | linha de base | pergunta respondível | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A54.md` | 213 | 657 | 0 |
+| A55 | com Oria | ficha de trecho | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A55.md` | 2090 | 1381 | 1 |
+| A56 | linha de base | ficha de trecho | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A56.md` | 426 | 1426 | 1 |
+| A57 | linha de base | ficha de trecho | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A57.md` | 456 | 880 | 1 |
+| A58 | com Oria | pergunta de ligação | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A58.md` | 3387 | 650 | 6 |
+| A59 | com Oria | pergunta respondível | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida | `validacao/saidas-brutas/A59.md` | 2667 | 645 | 3 |
+| A60 | linha de base | pergunta fora do ebook | Capítulo 2 - Infraestrutura tecnológica escolar no ensino remoto emergencial: alcance e limitações para os(as) docentes | `validacao/saidas-brutas/A60.md` | 205 | 1565 | 0 |
+
+**Total em disco de `validacao/saidas-brutas/`:** 236.311 bytes (~231 KiB), 60 arquivos, `.md`.
+
+### Amostra transcrita por inteiro — A4 (linha de base, pergunta respondível, sem substituição)
+
+Código escolhido: **A4** (linha de base, tarefa `C8-P2`, pergunta respondível). A entrada de uma pergunta de linha de base é só o enunciado escrito pela autora — sem texto colado do livro — então não há substituição alguma, e o arquivo abaixo é exatamente o que está gravado no banco, nos dois campos.
+
+```
+# A4
+
+| Campo | Valor |
+|---|---|
+| Código | A4 |
+| Condição | linha de base |
+| Tarefa | C8-P2 |
+| Tipo de tarefa | pergunta respondível |
+| Seção | Capítulo 8 - Contexto pós-pandêmico: políticas públicas abaladas, cidadania comprometida |
+| Modelo | nvidia/nemotron-3.5-lightning:free |
+| Papel de prompt | baseline |
+| Versão de prompt | 1 |
+| Data e hora (UTC) | 2026-11-08 19:29:06 UTC |
+
+Substituições de texto do livro na entrada: nenhuma substituição.
+
+## Entrada completa
+
+```json
+[{"role":"system","content":"Você é um assistente útil. Responda à solicitação do usuário."},{"role":"user","content":"Que números o capítulo apresenta sobre ataques violentos em escolas?"}]
+```
+
+## Saída bruta
+
+```
+Para responder com precisão, preciso saber de qual capítulo, livro, artigo ou relatório você está se referindo. "Ataques violentos em escolas" pode aparecer em muitos tipos de fontes — estudos acadêmicos, relatórios de segurança, notas de política pública, etc — e cada um apresenta números diferentes (taxas, frequência, demografia, resultados de intervenções, etc.).
+
+Se você me disser a fonte ou o título do capítulo, consigo dizer exatamente quais dados ou estatísticas ele contém.
+
+Caso queira, também posso fornecer um panorama geral com números e tendências atuais sobre o tema, baseados em fontes confiáveis como organizações educacionais, de segurança ou de saúde pública. É só dizer!
+```
+```
+
+### Verificações obrigatórias
+
+**(a) 60 arquivos, A1 a A60, sem buraco nem sobra.** Confirmado:
+`validacao/saidas-brutas/` tem exatamente 60 arquivos `.md`, nomeados
+`A1.md`...`A60.md`; nenhum faltando, nenhum extra.
+
+**(b) Comparação byte a byte para 5 códigos** — escolhidos para cobrir as
+duas condições e os quatro papéis de prompt presentes na execução: `A1`
+(com Oria, `dialogue`), `A6` (linha de base, `baseline`, sem substituição
+— serve de controle), `A3` (com Oria, `fichamento`, resumo), `A26` (linha
+de base, `fichamento` como papel derivado, resumo) e `A33` (com Oria,
+`questions`). Dois testes independentes, para cada um:
+- `saidaBruta` do arquivo contra `validacao_saidas."saidaBruta"` do banco:
+  idêntica nos 5 (e, reconferido à parte, nos 60 — nenhuma divergência).
+- `entradaCompleta` do arquivo: em vez de tentar reverter os marcadores
+  (o que exigiria reescapar o texto restaurado para dentro de uma string
+  JSON e arriscaria um falso negativo por diferença de escape, não por
+  erro real), a verificação foi pela via contrária, mais forte — pegar o
+  valor de `entradaCompleta` direto do banco, de novo, e aplicar a mesma
+  função de redação usada para gerar o arquivo. O resultado precisa ser
+  byte a byte igual ao que já está gravado no arquivo. Rodado para os 5
+  códigos e, à parte, para os 60: **zero divergências** — toda entrada
+  gravada é exatamente reprodutível a partir do valor atual do banco pela
+  mesma transformação documentada acima.
+
+**(c) Nenhuma saída com `sucesso = false`; as 60 têm `saidaBruta` não
+vazia.** Confirmado contra os 60 registros: nenhuma com `sucesso = false`,
+nenhuma com `saidaBruta` vazia ou nula. Nenhum arquivo precisou do texto
+"vazio no banco".
+
+**(d) Nenhum dos 60 arquivos contém texto do livro na entrada.** Busca por
+uma sequência de 200 caracteres do meio de `textoCompleto`, por seção,
+contra o texto de "Entrada completa" dos 60 arquivos (não o arquivo
+inteiro — a saída nunca foi tocada e não faz parte desta verificação).
+Testadas as 10 seções que efetivamente aparecem como origem de algum
+marcador nesta execução (as 2 seções das tarefas de resumo/ficha/questões
+e as 8 seções de onde vieram chunks recuperados nas perguntas com Oria):
+Capítulo 1, Capítulo 2, Capítulo 3, Capítulo 4, Capítulo 6, Capítulo 7,
+Capítulo 8, "Apresentação e delimitações", "Front Matter / Elementos
+Pré-textuais / Páginas Iniciales" e "Nota preliminar". As 10 sequências
+de teste (não transcritas aqui, por ser texto do livro) tiveram zero
+ocorrências em todas as 60 entradas redigidas.
+
+**(e) Nenhum marcador com hash vazio, reaproveitado por engano entre
+textos diferentes, ou com contagem de caracteres zero.** 127 marcadores
+no total, nos 60 arquivos. Nenhum hash vazio ou malformado; nenhum com
+`<n> caracteres` igual a zero; 58 hashes distintos, e nenhum hash
+apareceu associado a mais de um valor de `<n>` diferente (o que indicaria
+dois textos diferentes colididos sob o mesmo hash por erro de geração) —
+os casos em que o mesmo hash se repete são genuinamente o mesmo texto
+substituído mais de uma vez (ex.: o texto integral de um capítulo é
+removido tanto na saída de resumo quanto na de bateria de questões da
+mesma condição, e o trecho de uma ficha é o mesmo nas duas condições,
+com Oria e linha de base).
+
+**Confirmação da regra 8:** os arquivos intermediários usados para montar
+e verificar este índice (dumps de `entradaCompleta`/`saidaBruta`, listas
+de marcadores) foram criados fora da árvore do repositório, em diretório
+de trabalho temporário da sessão, e foram apagados ao final desta tarefa
+— nenhum texto do livro foi escrito em nenhum arquivo dentro do
+repositório além dos marcadores (hash + contagem de caracteres) nos 60
+`.md` de `validacao/saidas-brutas/`.
